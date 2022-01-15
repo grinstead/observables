@@ -1,0 +1,19 @@
+{
+  "name": "@grinstead/tx",
+  "version": "0.1.0",
+  "description": "A library for asynchronous generators",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "observable",
+    "stream",
+    "transmit",
+    "generator",
+    "async",
+    "asynchronous"
+  ],
+  "author": "@grinstead",
+  "license": "BSD-2-Clause"
+}
