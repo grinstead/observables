@@ -60,6 +60,15 @@ function makeChild(handler, addedAfter) {
 }
 
 /**
+ * @enum {number}
+ */
+const TxState = {
+  Open: 0,
+  Closing: 1,
+  Closed: 2,
+};
+
+/**
  * Represents where an invoked generator outputs to.
  * @template T The type of each non-return iteration
  * @template ReturnT The final return type
@@ -88,10 +97,10 @@ class TxOutput {
     this._nextIndex = 0;
 
     /**
-     * When this is non-null, it is the closing iteration.
-     * @type {?Iteration<T,ReturnT>}
+     * Whether or not the element is closed.
+     * @type {boolean}
      */
-    this._finalIter = null;
+    this._state = TxState.Open;
 
     /**
      * The parent for this TxOutput, used to close everything.
@@ -144,7 +153,10 @@ class TxOutput {
   }
 
   close() {
-    // TODO: ignore multiple calls
+    if (this._state === TxState.Closed) {
+      return;
+    }
+    this._state = TxState.Closed;
 
     const closers = [];
 
@@ -154,16 +166,17 @@ class TxOutput {
       const onClose = tx.onClose;
       onClose && closers.push(onClose);
 
+      tx._state = TxState.Closed;
       tx._child = null;
       tx._parent = null;
       tx = parent;
     }
 
-    const length = closers.length;
-    for (let i = 0; i < length; i++) {
+    let i = closers.length;
+    while (i) {
       // if it throws an exception, then at least we have
       // already disabled the chain
-      closers[i]();
+      closers[--i]();
     }
   }
 }
@@ -177,14 +190,16 @@ class TxOutput {
  * @returns
  */
 function runEvent(output, iteration) {
-  if (output._finalIter) {
-    // todo throw error
+  if (output._state !== TxState.Open) {
+    // todo silently do nothing
     console.error(`Tried sending output after finished`);
+    // throw new Error("STA");
     return;
   }
 
   if (iteration.done) {
-    output._finalIter = iteration;
+    console.log("SCHEDULE CLOSE");
+    output._state = TxState.Closing;
   }
 
   const child = output._child;
@@ -210,18 +225,24 @@ function runEvent(output, iteration) {
   // run through the queue, it is allowed to grow as we go
   let active = queueNode;
   while (active) {
+    const { iteration, index, nextEvent } = active;
+
+    if (iteration.done) {
+      output.close();
+    }
+
+    // set it to null, if we are successful then it gets set to nextEvent
+    active = null;
+
     const handler = child.controller;
     if (handler) {
       try {
-        handler(active.iteration, active.index);
-        active = active.nextEvent;
+        handler(iteration, index);
+        active = nextEvent;
       } catch (error) {
-        output._child = null;
-        active = null; // kills the loop
+        // this will close everything
         child.error(error);
       }
-    } else {
-      active = null; // kill the loop
     }
   }
 

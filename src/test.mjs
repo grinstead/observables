@@ -4,7 +4,7 @@ console.log("Hi");
 
 let gen = makeTx((output) => {
   let running = true;
-  output.close = () => {
+  output.onClose = () => {
     console.log("A closed");
     running = false;
   };
@@ -19,15 +19,22 @@ let gen = makeTx((output) => {
 });
 
 gen = makeTxOp((output) => (iter, index) => {
+  output.onClose = () => {
+    console.log("B closed");
+  };
+
   console.log("B", iter);
   output.iter(iter);
   if (index === 2) {
-    output.close();
+    output.complete();
     // throw "FAIL";
   }
 })(gen);
 
 gen = makeTxOp((output) => (iter) => {
+  output.onClose = () => {
+    console.log("C closed");
+  };
   console.log("C", iter);
 })(gen);
 
