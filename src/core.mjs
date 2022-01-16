@@ -24,11 +24,6 @@ let Handler;
 let IterRound;
 
 /**
- * @typedef {function():void} CloseFunc
- */
-let CloseFunc;
-
-/**
  * @template InT
  * @template InReturnT
  * @template OutT
@@ -377,7 +372,7 @@ function getCloseChain(chain, startFrom) {
  *
  * @template T
  * @template ReturnT
- * @param {function(SyncStream<T,ReturnT>):?CloseFunc} code
+ * @param {function(TxOutput<T,ReturnT>):void} code
  * @returns {AsyncGen<T,ReturnT>}
  */
 export function makeTx(code) {
@@ -390,7 +385,7 @@ export function makeTx(code) {
  * @template InReturnT
  * @template T
  * @template ReturnT
- * @param {function(SyncStream<InT,InReturnT>,SyncStream<T,ReturnT>):?CloseFunc} code
+ * @param {function(TxOutput<T,ReturnT>,function():void):Handler<InT,InReturnT>} code
  * @returns {TxOp<InT,InReturnT,T,ReturnT>}
  */
 export function makeTxOp(code) {
