@@ -28,6 +28,11 @@ let Handler;
 let IterRound;
 
 /**
+ * @typedef {function():void} CloseFunc
+ */
+let CloseFunc;
+
+/**
  * Subscribers are held in a linked-list of their handlers. If the handler is
  * set to null, that means that the user tried unsubscribing and we just need to
  * clear it from the list
@@ -100,7 +105,7 @@ class SyncStream {
   /**
    * Ends the stream. Equivalent to call return(undefined)
    */
-  finish() {
+  complete() {
     this.return();
   }
 
@@ -238,9 +243,103 @@ function runHandlers(stream, iteration) {
   stream._queueEnd = null;
 }
 
+class AsyncIteration {
+  constructor(closers) {
+    function close() {
+      closers.forEach((closer) => {
+        closer && closer();
+      });
+    }
+
+    this.close = close;
+  }
+}
+
 /**
  * An Async Generator
+ * @template ArgT
+ * @template T
+ * @template ReturnT
  */
 class AsyncGen {
-  start(arg) {}
+  /**
+   * @private
+   */
+  constructor(parent, code) {
+    this._parent = parent;
+    this._open = code;
+  }
+
+  /**
+   * Starts the generator
+   * @param {ArgT} arg
+   */
+  open(arg) {
+    const closers = [];
+
+    let outputStream = new SyncStream();
+    let gen = this;
+    let parent = gen._parent;
+
+    while (parent) {
+      const inputStream = new SyncStream();
+
+      closers.push(gen._open(inputStream, outputStream));
+
+      outputStream = inputStream;
+      gen = parent;
+      parent = parent._parent;
+    }
+
+    // actually start the output stream
+    closers.push(gen._open(outputStream, arg));
+
+    return new AsyncIteration(closers);
+  }
+}
+
+/**
+ * Creates a generator that will call the code when the user calls open
+ *
+ * @template T
+ * @template ReturnT
+ * @template ArgT
+ * @param {function(ArgT, SyncStream<T,ReturnT>):?CloseFunc} code
+ * @returns {AsyncGen<T,ReturnT,ArgT>}
+ */
+function makeRootGen(code) {
+  return new AsyncGen(null, code);
+}
+
+/**
+ *
+ * @template InT
+ * @template InReturnT
+ * @template T
+ * @template ReturnT
+ * @template ArgT
+ * @param {AsyncGen<InT,InReturnT,ArgT>} parent
+ * @param {function(SyncStream<InT,InReturnT>,SyncStream<T,ReturnT>):?CloseFunc} code
+ * @returns {AsyncGen<T,ReturnT,ArgT>}
+ */
+function makeChildGen(parent, code) {
+  return new AsyncGen(parent, code);
+}
+
+function of(...args) {
+  return makeRootGen((sink) => {
+    args.forEach((x) => sink.next(x));
+  });
+}
+
+function map(mapper) {
+  return makeChildGen((source, sink) => {
+    subscribe(source, (val) => {
+      try {
+        sink.next(mapper(val));
+      } catch (error) {
+        sink.error(error);
+      }
+    });
+  });
 }
