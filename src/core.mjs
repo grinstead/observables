@@ -65,9 +65,10 @@ function makeChild(handler, addedAfter) {
  * @template ReturnT The final return type
  */
 class TxOutput {
-  constructor(handler) {
+  /** @private */
+  constructor(handler, child) {
     /**
-     * This should only change to null
+     * The current handler for the output
      * @type {?Handler}
      */
     this.handler = handler;
@@ -89,6 +90,12 @@ class TxOutput {
      * @type {?Iteration<T,ReturnT>}
      */
     this._finalIter = null;
+
+    /**
+     * If the handler throws, then we will write an error to this child
+     * @type {?TxOutput<*,*>}
+     */
+    this._child = child;
   }
 
   /**
@@ -165,7 +172,13 @@ function runEvent(output, iteration) {
   // run through the queue, it is allowed to grow as we go
   for (let active = queueNode; active; active = active.nextEvent) {
     const handler = output.handler;
-    handler && handler(active.iteration, active.index);
+    if (handler) {
+      try {
+        handler(active.iteration, active.index);
+      } catch (error) {
+        output._child?.error(error);
+      }
+    }
   }
 
   output._queueEnd = null;
@@ -186,10 +199,7 @@ class SyncStream {
      */
     this._children = null;
 
-    const output = new TxOutput();
-    this._output = output;
-
-    output.handler = (iteration, index) => {
+    this._output = new TxOutput((iteration, index) => {
       const firstChild = this._children;
 
       // skip to the first actual handler
@@ -223,14 +233,14 @@ class SyncStream {
             prevChild = child;
           }
         } else {
-          // this code is guaranteed not to throw because it is wrapped elsewhere
+          // todo: handle errors
           handler(iteration, index);
           prevChild = child;
         }
 
         child = nextChild;
       }
-    };
+    }, null);
   }
 
   /**
@@ -314,7 +324,7 @@ class AsyncGen {
    * Starts the generator
    */
   open() {
-    let output = new TxOutput(null);
+    let output = new TxOutput(null, null);
     const chain = [output];
 
     let gen = this;
@@ -324,7 +334,7 @@ class AsyncGen {
       // run the child
       const handler = gen._open(output, getCloseChain(chain, chain.length - 1));
 
-      output = new TxOutput(handler);
+      output = new TxOutput(handler, output);
       chain.push(output);
 
       gen = parent;

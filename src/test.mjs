@@ -22,9 +22,9 @@ gen = makeTxOp((output, unsubscribe) => (iter, index) => {
   console.log("B", iter);
   output.iter(iter);
   if (index === 2) {
-    unsubscribe();
+    // unsubscribe();
+    throw "FAIL";
   }
-  iter.value === 2 && unsubscribe();
   output.com;
 })(gen);
 
