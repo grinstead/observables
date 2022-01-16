@@ -157,6 +157,7 @@ class TxOutput {
       return;
     }
     this._state = TxState.Closed;
+    this._queueEnd = null;
 
     const closers = [];
 
@@ -240,8 +241,15 @@ function runEvent(output, iteration) {
         handler(iteration, index);
         active = nextEvent;
       } catch (error) {
-        // this will close everything
-        child.error(error);
+        // is idempotent
+        output.close();
+
+        if (child._state === TxState.Open) {
+          child.error(error);
+        } else {
+          // no where for the error to go
+          throw error;
+        }
       }
     }
   }

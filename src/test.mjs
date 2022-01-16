@@ -24,10 +24,10 @@ gen = makeTxOp((output) => (iter, index) => {
   console.log("B", iter);
   output.iter(iter);
   if (index === 2) {
-    console.log("SEND COMPLETE");
-    output.complete();
-    console.log("COMPLETE COMPLETE");
-    // throw "FAIL";
+    // console.log("SEND COMPLETE");
+    // output.complete();
+    // console.log("COMPLETE COMPLETE");
+    throw new Error("FAIL");
   }
 })(gen);
 
