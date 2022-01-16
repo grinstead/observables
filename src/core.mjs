@@ -325,7 +325,6 @@ class AsyncIteration {
 
 /**
  * An Async Generator
- * @template ArgT
  * @template T
  * @template ReturnT
  */
@@ -340,9 +339,8 @@ class AsyncGen {
 
   /**
    * Starts the generator
-   * @param {ArgT} arg
    */
-  open(arg) {
+  open() {
     let output = new TxOutput(null);
     const chain = [output];
 
@@ -360,7 +358,7 @@ class AsyncGen {
     }
 
     // actually start the output stream
-    gen._open(output, arg);
+    gen._open(output);
 
     return new AsyncIteration(chain);
   }
@@ -371,9 +369,8 @@ class AsyncGen {
  *
  * @template T
  * @template ReturnT
- * @template ArgT
- * @param {function(ArgT, SyncStream<T,ReturnT>):?CloseFunc} code
- * @returns {AsyncGen<T,ReturnT,ArgT>}
+ * @param {function(SyncStream<T,ReturnT>):?CloseFunc} code
+ * @returns {AsyncGen<T,ReturnT>}
  */
 export function makeGen(code) {
   return new AsyncGen(null, code);
@@ -385,10 +382,9 @@ export function makeGen(code) {
  * @template InReturnT
  * @template T
  * @template ReturnT
- * @template ArgT
- * @param {AsyncGen<InT,InReturnT,ArgT>} parent
+ * @param {AsyncGen<InT,InReturnT>} parent
  * @param {function(SyncStream<InT,InReturnT>,SyncStream<T,ReturnT>):?CloseFunc} code
- * @returns {AsyncGen<T,ReturnT,ArgT>}
+ * @returns {AsyncGen<T,ReturnT>}
  */
 export function makeChildGen(parent, code) {
   return new AsyncGen(parent, code);
