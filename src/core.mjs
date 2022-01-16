@@ -18,7 +18,7 @@ function makeIter(done, value) {
 /**
  * @template T
  * @template ReturnT
- * @typedef {function(Iteration<T,ReturnT>):void} Handler
+ * @typedef {function(Iteration<T,ReturnT>,number):void} Handler
  */
 let Handler;
 
@@ -39,7 +39,7 @@ let CloseFunc;
  */
 /**
  * @typedef {{
- *  handler: ?function(Iteration<*,*>):void,
+ *  handler: ?Handler<*,*>,
  *  addedAfter: ?IterRound,
  *  nextChild: ?Child,
  * }} Child
@@ -68,7 +68,7 @@ class TxOutput {
   constructor(handler) {
     /**
      * This should only change to null
-     * @type {?function(Iteration<T,ReturnT>,number):void}
+     * @type {?Handler}
      */
     this.handler = handler;
 
