@@ -171,7 +171,7 @@ function runEvent(output, iteration) {
 
   // run through the queue, it is allowed to grow as we go
   for (let active = queueNode; active; active = active.nextEvent) {
-    const handler = output._handler;
+    const handler = output.handler;
     handler && handler(active.iteration, active.index);
   }
 
@@ -375,7 +375,7 @@ class AsyncGen {
  * @param {function(ArgT, SyncStream<T,ReturnT>):?CloseFunc} code
  * @returns {AsyncGen<T,ReturnT,ArgT>}
  */
-function makeRootGen(code) {
+export function makeGen(code) {
   return new AsyncGen(null, code);
 }
 
@@ -390,12 +390,12 @@ function makeRootGen(code) {
  * @param {function(SyncStream<InT,InReturnT>,SyncStream<T,ReturnT>):?CloseFunc} code
  * @returns {AsyncGen<T,ReturnT,ArgT>}
  */
-function makeChildGen(parent, code) {
+export function makeChildGen(parent, code) {
   return new AsyncGen(parent, code);
 }
 
-function of(...args) {
-  return makeRootGen((output) => {
+export function of(...args) {
+  return makeGen((output) => {
     args.forEach((x) => output.next(x));
   });
 }
