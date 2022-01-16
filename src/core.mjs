@@ -100,17 +100,10 @@ class TxOutput {
   }
 
   /**
-   * Equivalent to {@link TxOutput.return} getting passed undefined
-   */
-  complete() {
-    this.return();
-  }
-
-  /**
    * Ends the output with the given return value
    * @param {ReturnT} returnVal
    */
-  return(returnVal) {
+  complete(returnVal) {
     runEvent(this, { done: true, value: returnVal });
   }
 
@@ -249,17 +242,10 @@ class SyncStream {
   }
 
   /**
-   * Ends the stream. Equivalent to call return(undefined)
-   */
-  complete() {
-    this.return();
-  }
-
-  /**
    * Ends the stream with the given return value
    * @param {ReturnT} returnVal
    */
-  return(returnVal) {
+  complete(returnVal) {
     this._output.return(returnVal);
   }
 

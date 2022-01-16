@@ -7,10 +7,11 @@ let gen = makeGen((output) => {
   output.next(1);
   console.log("A2");
   output.next(2);
+  output.return(5);
 });
 
 gen = makeChildGen(gen, (output) => (iter) => {
-  console.log("B");
+  console.log("B", iter);
 });
 
-gen.open(1);
+gen.open();
