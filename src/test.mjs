@@ -13,9 +13,7 @@ let gen = makeTx((output) => {
     console.log(`A${x}`);
     output.next(x);
     return running;
-  });
-
-  output.complete();
+  }) && output.complete();
 });
 
 gen = makeTxOp((output) => (iter, index) => {
@@ -26,7 +24,9 @@ gen = makeTxOp((output) => (iter, index) => {
   console.log("B", iter);
   output.iter(iter);
   if (index === 2) {
+    console.log("SEND COMPLETE");
     output.complete();
+    console.log("COMPLETE COMPLETE");
     // throw "FAIL";
   }
 })(gen);

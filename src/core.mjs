@@ -397,8 +397,8 @@ class AsyncGen {
 
     while (parent) {
       // run the child
-      const handler = gen._open(top);
-      top.controller = handler;
+      const code = gen._open;
+      top.controller = code(top);
 
       top = new TxOutput(top);
 
@@ -407,7 +407,8 @@ class AsyncGen {
     }
 
     // actually start the output stream
-    gen._open(top);
+    const code = gen._open;
+    code(top);
 
     return new AsyncIteration(top);
   }
