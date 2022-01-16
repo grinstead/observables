@@ -66,13 +66,29 @@ function makeChild(handler, addedAfter) {
  */
 class TxOutput {
   constructor(handler) {
+    /**
+     * This should only change to null
+     * @type {?function(Iteration<T,ReturnT>,number):void}
+     */
     this.handler = handler;
+
+    /**
+     * Set this value if you would like to run code on close
+     * @type {?function():void}
+     */
+    this.close = null;
 
     /**
      * This is an odd field
      */
     this._queueEnd = null;
     this._nextIndex = 0;
+
+    /**
+     * When this is non-null, it is the closing iteration.
+     * @type {?Iteration<T,ReturnT>}
+     */
+    this._finalIter = null;
   }
 
   /**
@@ -112,6 +128,16 @@ class TxOutput {
  * @returns
  */
 function runEvent(output, iteration) {
+  if (output._finalIter) {
+    // todo throw error
+    console.error(`Tried sending output after finished`);
+    return;
+  }
+
+  if (iteration.done) {
+    output._finalIter = iteration;
+  }
+
   const queueNode = {
     nextEvent: null,
     iteration,
@@ -130,23 +156,9 @@ function runEvent(output, iteration) {
   // There is not already a runEvent working, so we are the one in charge
 
   // run through the queue, it is allowed to grow as we go
-  let active = queueNode;
-  while (active) {
+  for (let active = queueNode; active; active = active.nextEvent) {
     const handler = output._handler;
-
-    if (!handler) {
-      // todo: drop silently
-      console.warn(`No handler`);
-      break;
-    }
-
-    const { index, iteration, nextEvent } = active;
-    if (iteration.done) {
-      output._handler = null;
-    }
-
-    handler(iteration, index);
-    active = nextEvent;
+    handler && handler(active.iteration, active.index);
   }
 
   output._queueEnd = null;
@@ -166,13 +178,6 @@ class SyncStream {
      * @private
      */
     this._children = null;
-
-    /**
-     * If this is non-null, then the stream has finished
-     * with that value
-     * @type {boolean}
-     */
-    this._finished = false;
 
     const output = new TxOutput();
     this._output = output;
@@ -209,10 +214,6 @@ class SyncStream {
           if (addedAfter === iteration) {
             child.addedAfter = null;
             prevChild = child;
-          } else {
-            // we know that anything after this child is just going to be ignored,
-            // might as well skip them
-            child = null;
           }
         } else {
           // this code is guaranteed not to throw because it is wrapped elsewhere
@@ -245,12 +246,10 @@ class SyncStream {
    * @param {ReturnT} returnVal
    */
   return(returnVal) {
-    this._finished = true;
     this._output.return(returnVal);
   }
 
   error(error) {
-    this._finished = true;
     this._output.error(error);
   }
 }
@@ -263,7 +262,7 @@ class SyncStream {
  * @param {Handler<T,ReturnT>} handler
  */
 function subscribe(stream, handler) {
-  const child = makeChild(handler, stream._output._queueEnd);
+  const child = makeChild(handler, stream._output._queueEnd?.iteration);
 
   let children = stream._children;
   if (children && children.handler) {
@@ -287,10 +286,22 @@ function subscribe(stream, handler) {
 }
 
 class AsyncIteration {
-  constructor(closers) {
+  /**
+   *
+   * @param {Array<TxOutput<*,*>>} chain
+   * @private
+   */
+  constructor(chain) {
     function close() {
-      closers.forEach((closer) => {
-        closer && closer();
+      // first disable the chain
+      chain.forEach((output) => {
+        output.handler = null;
+      });
+
+      // now run the user code
+      chain.forEach((output) => {
+        const close = output.close;
+        close && close();
       });
     }
 
@@ -318,24 +329,26 @@ class AsyncGen {
    * @param {ArgT} arg
    */
   open(arg) {
-    const closers = [];
+    let output = new TxOutput(null);
+    const chain = [output];
 
-    let output = new TxOutput();
     let gen = this;
     let parent = gen._parent;
 
     while (parent) {
-      closers.push(gen._open(output));
+      const handler = gen._open(output);
 
-      output = new TxOutput();
+      output = new TxOutput(handler);
+      chain.push(output);
+
       gen = parent;
       parent = parent._parent;
     }
 
     // actually start the output stream
-    closers.push(gen._open(output, arg));
+    gen._open(output, arg);
 
-    return new AsyncIteration(closers);
+    return new AsyncIteration(chain);
   }
 }
 
@@ -368,19 +381,20 @@ function makeChildGen(parent, code) {
 }
 
 function of(...args) {
-  return makeRootGen((sink) => {
-    args.forEach((x) => sink.next(x));
+  return makeRootGen((output) => {
+    args.forEach((x) => output.next(x));
   });
 }
 
 function map(mapper) {
-  return makeChildGen((source, sink) => {
-    subscribe(source, (val) => {
+  return (input) =>
+    makeChildGen(input, (output) => (iteration) => {
+      if (iteration.done) return iteration;
+
       try {
-        sink.next(mapper(val));
+        output.next(mapper(val));
       } catch (error) {
-        sink.error(error);
+        output.error(error);
       }
     });
-  });
 }
