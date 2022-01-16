@@ -11,10 +11,6 @@
  */
 let Iteration;
 
-function makeIter(done, value) {
-  return { done, value };
-}
-
 /**
  * @template T
  * @template ReturnT
@@ -31,6 +27,15 @@ let IterRound;
  * @typedef {function():void} CloseFunc
  */
 let CloseFunc;
+
+/**
+ * @template InT
+ * @template InReturnT
+ * @template OutT
+ * @template OutReturnT
+ * @typedef {function(AsyncGen<InT,InReturnT>):AsyncGen<OutT,OutReturnT>} TxOp
+ */
+let TxOp;
 
 /**
  * Subscribers are held in a linked-list of their handlers. If the handler is
@@ -119,7 +124,7 @@ class TxOutput {
     if (!done) {
       this.next(value);
     } else if (done === true) {
-      this.return(value);
+      this.complete(value);
     } else {
       this.error(value);
     }
@@ -292,20 +297,7 @@ class AsyncIteration {
    * @private
    */
   constructor(chain) {
-    function close() {
-      // first disable the chain
-      chain.forEach((output) => {
-        output.handler = null;
-      });
-
-      // now run the user code
-      chain.forEach((output) => {
-        const close = output.close;
-        close && close();
-      });
-    }
-
-    this.close = close;
+    this.close = getCloseChain(chain, 0);
   }
 }
 
@@ -334,7 +326,8 @@ class AsyncGen {
     let parent = gen._parent;
 
     while (parent) {
-      const handler = gen._open(output);
+      // run the child
+      const handler = gen._open(output, getCloseChain(chain, chain.length - 1));
 
       output = new TxOutput(handler);
       chain.push(output);
@@ -351,6 +344,35 @@ class AsyncGen {
 }
 
 /**
+ *
+ * @param {Array<TxOutput>} chain
+ * @param {number} startFrom
+ * @returns {function():void}
+ */
+function getCloseChain(chain, startFrom) {
+  function closeChain() {
+    const length = chain.length;
+
+    // first disable the chain
+    for (let i = startFrom; i < length; i++) {
+      chain[i].handler = null;
+    }
+
+    // now run the user code (from deepest in the chain to root)
+    for (let i = startFrom; i < length; i++) {
+      const output = chain[i];
+      const close = output.close;
+      if (close) {
+        output.close = null;
+        close();
+      }
+    }
+  }
+
+  return closeChain;
+}
+
+/**
  * Creates a generator that will call the code when the user calls open
  *
  * @template T
@@ -358,7 +380,7 @@ class AsyncGen {
  * @param {function(SyncStream<T,ReturnT>):?CloseFunc} code
  * @returns {AsyncGen<T,ReturnT>}
  */
-export function makeGen(code) {
+export function makeTx(code) {
   return new AsyncGen(null, code);
 }
 
@@ -368,32 +390,25 @@ export function makeGen(code) {
  * @template InReturnT
  * @template T
  * @template ReturnT
- * @param {AsyncGen<InT,InReturnT>} parent
  * @param {function(SyncStream<InT,InReturnT>,SyncStream<T,ReturnT>):?CloseFunc} code
- * @returns {AsyncGen<T,ReturnT>}
+ * @returns {TxOp<InT,InReturnT,T,ReturnT>}
  */
-export function makeChildGen(parent, code) {
-  return new AsyncGen(parent, code);
+export function makeTxOp(code) {
+  return (input) => new AsyncGen(input, code);
 }
 
 export function of(...args) {
-  return makeGen((output) => {
+  return makeTx((output) => {
     args.forEach((x) => output.next(x));
   });
 }
 
 function map(mapper) {
-  return (input) =>
-    makeChildGen(input, (output) => (iter) => {
-      if (iter.done) {
-        output.iter(iter);
-        return;
-      }
-
-      try {
-        output.next(mapper(iter.value));
-      } catch (error) {
-        output.error(error);
-      }
-    });
+  return makeTxOp((output) => (iter) => {
+    try {
+      output.next(mapper(iter.value));
+    } catch (error) {
+      output.error(error);
+    }
+  });
 }

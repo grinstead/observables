@@ -1,17 +1,35 @@
-import { makeChildGen, makeGen } from "./core.mjs";
+import { makeTxOp, makeTx } from "./core.mjs";
 
 console.log("Hi");
 
-let gen = makeGen((output) => {
-  console.log("A1");
-  output.next(1);
-  console.log("A2");
-  output.next(2);
-  output.return(5);
+let gen = makeTx((output) => {
+  let running = true;
+  output.close = () => {
+    console.log("A closed");
+    running = false;
+  };
+
+  [1, 2, 3, 4].every((x) => {
+    console.log(`A${x}`);
+    output.next(x);
+    return true; //running;
+  });
+
+  output.complete();
 });
 
-gen = makeChildGen(gen, (output) => (iter) => {
+gen = makeTxOp((output, unsubscribe) => (iter, index) => {
   console.log("B", iter);
-});
+  output.iter(iter);
+  if (index === 2) {
+    unsubscribe();
+  }
+  iter.value === 2 && unsubscribe();
+  output.com;
+})(gen);
+
+gen = makeTxOp((_, unsubscribe) => (iter) => {
+  console.log("C", iter);
+})(gen);
 
 gen.open();
