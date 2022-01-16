@@ -9,26 +9,25 @@ let gen = makeTx((output) => {
     running = false;
   };
 
-  [1, 2, 3, 4].every((x) => {
+  [0, 1, 2, 3, 4].every((x) => {
     console.log(`A${x}`);
     output.next(x);
-    return true; //running;
+    return running;
   });
 
   output.complete();
 });
 
-gen = makeTxOp((output, unsubscribe) => (iter, index) => {
+gen = makeTxOp((output) => (iter, index) => {
   console.log("B", iter);
   output.iter(iter);
   if (index === 2) {
-    // unsubscribe();
-    throw "FAIL";
+    output.close();
+    // throw "FAIL";
   }
-  output.com;
 })(gen);
 
-gen = makeTxOp((_, unsubscribe) => (iter) => {
+gen = makeTxOp((output) => (iter) => {
   console.log("C", iter);
 })(gen);
 

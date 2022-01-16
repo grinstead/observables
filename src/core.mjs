@@ -79,7 +79,7 @@ class TxOutput {
      * Set this value if you would like to run code on close
      * @type {?function():void}
      */
-    this.close = null;
+    this.onClose = null;
 
     /**
      * This is an odd field
@@ -94,11 +94,19 @@ class TxOutput {
     this._finalIter = null;
 
     /**
+     * The parent for this TxOutput, used to close everything.
+     * @type {?TxOutput<*,*,InT,ReturnT>}
+     */
+    this._parent = null;
+
+    /**
      * When an event occurs, it will call the child's controller.
      * The child will change to null when it dies
-     * @type {?TxOutput<*,*>}
+     * @type {?TxOutput<*,*,T,ReturnT>}
      */
     this._child = child;
+
+    if (child) child._parent = this;
   }
 
   /**
@@ -132,6 +140,30 @@ class TxOutput {
       this.complete(value);
     } else {
       this.error(value);
+    }
+  }
+
+  close() {
+    // TODO: ignore multiple calls
+
+    const closers = [];
+
+    let tx = this;
+    while (tx) {
+      const parent = tx._parent;
+      const onClose = tx.onClose;
+      onClose && closers.push(onClose);
+
+      tx._child = null;
+      tx._parent = null;
+      tx = parent;
+    }
+
+    const length = closers.length;
+    for (let i = 0; i < length; i++) {
+      // if it throws an exception, then at least we have
+      // already disabled the chain
+      closers[i]();
     }
   }
 }
@@ -310,11 +342,11 @@ function subscribe(stream, handler) {
 class AsyncIteration {
   /**
    *
-   * @param {Array<TxOutput<*,*>>} chain
+   * @param {TxOutput<*,*,*,*>} chain
    * @private
    */
   constructor(chain) {
-    this.close = getCloseChain(chain, 0);
+    this.close = () => chain.close();
   }
 }
 
@@ -336,58 +368,28 @@ class AsyncGen {
    * Starts the generator
    */
   open() {
-    let output = new TxOutput(null);
-    const chain = [output];
+    const base = new TxOutput(null);
 
     let gen = this;
     let parent = gen._parent;
+    let top = base;
 
     while (parent) {
       // run the child
-      const handler = gen._open(output, getCloseChain(chain, chain.length - 1));
-      output.controller = handler;
+      const handler = gen._open(top);
+      top.controller = handler;
 
-      output = new TxOutput(output);
-      chain.push(output);
+      top = new TxOutput(top);
 
       gen = parent;
       parent = parent._parent;
     }
 
     // actually start the output stream
-    gen._open(output);
+    gen._open(top);
 
-    return new AsyncIteration(chain);
+    return new AsyncIteration(top);
   }
-}
-
-/**
- *
- * @param {Array<TxOutput>} chain
- * @param {number} startFrom
- * @returns {function():void}
- */
-function getCloseChain(chain, startFrom) {
-  function closeChain() {
-    const length = chain.length;
-
-    // first disable the chain
-    for (let i = startFrom; i < length; i++) {
-      chain[i].handler = null;
-    }
-
-    // now run the user code (from deepest in the chain to root)
-    for (let i = startFrom; i < length; i++) {
-      const output = chain[i];
-      const close = output.close;
-      if (close) {
-        output.close = null;
-        close();
-      }
-    }
-  }
-
-  return closeChain;
 }
 
 /**
