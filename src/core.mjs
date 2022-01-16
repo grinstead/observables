@@ -117,6 +117,20 @@ class TxOutput {
   error(error) {
     runEvent(this, { done: "error", value: error });
   }
+
+  iter(iter) {
+    // I would rather clone the iter than send it down straight
+    // so this is just a convenience method
+    const { done, value } = iter;
+
+    if (!done) {
+      this.next(value);
+    } else if (done === true) {
+      this.return(value);
+    } else {
+      this.error(value);
+    }
+  }
 }
 
 /**
@@ -388,11 +402,14 @@ function of(...args) {
 
 function map(mapper) {
   return (input) =>
-    makeChildGen(input, (output) => (iteration) => {
-      if (iteration.done) return iteration;
+    makeChildGen(input, (output) => (iter) => {
+      if (iter.done) {
+        output.iter(iter);
+        return;
+      }
 
       try {
-        output.next(mapper(val));
+        output.next(mapper(iter.value));
       } catch (error) {
         output.error(error);
       }
