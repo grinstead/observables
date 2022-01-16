@@ -175,9 +175,11 @@ class TxOutput {
 
     let i = closers.length;
     while (i) {
-      // if it throws an exception, then at least we have
-      // already disabled the chain
-      closers[--i]();
+      try {
+        closers[--i]();
+      } catch (error) {
+        uncaughtErrorWhileRunning(error);
+      }
     }
   }
 }
@@ -248,7 +250,7 @@ function runEvent(output, iteration) {
           child.error(error);
         } else {
           // no where for the error to go
-          throw error;
+          uncaughtErrorWhileRunning(error);
         }
       }
     }
@@ -395,14 +397,25 @@ class AsyncGen {
 
   /**
    * Starts the generator
+   * @param {?function(T):void} outputCode An optional input
    */
-  open() {
+  open(outputCode) {
     const base = new TxOutput(null);
+    let top = base;
+
+    if (outputCode) {
+      const unsubscribe = () => base.close();
+      base.controller = (iter) => {
+        if (!iter.done) {
+          outputCode(iter.value, unsubscribe);
+        }
+      };
+
+      top = new TxOutput(top);
+    }
 
     let gen = this;
     let parent = gen._parent;
-    let top = base;
-
     while (parent) {
       // run the child
       const code = gen._open;
@@ -461,4 +474,9 @@ function map(mapper) {
       output.error(error);
     }
   });
+}
+
+function uncaughtErrorWhileRunning(error) {
+  // hopefully the user will get a visual report
+  Promise.reject(error);
 }

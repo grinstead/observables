@@ -21,11 +21,12 @@ gen = makeTxOp((output) => (iter, index) => {
     console.log("B closed");
   };
 
-  console.log("B", iter);
+  console.log("B", iter, index);
   output.iter(iter);
+
   if (index === 2) {
     // console.log("SEND COMPLETE");
-    // output.complete();
+    output.complete();
     // console.log("COMPLETE COMPLETE");
     throw new Error("FAIL");
   }
@@ -36,6 +37,9 @@ gen = makeTxOp((output) => (iter) => {
     console.log("C closed");
   };
   console.log("C", iter);
+  output.iter(iter);
 })(gen);
 
-gen.open();
+gen.open((val) => {
+  console.log("D", val);
+});
