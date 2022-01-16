@@ -63,15 +63,17 @@ function makeChild(handler, addedAfter) {
  * Represents where an invoked generator outputs to.
  * @template T The type of each non-return iteration
  * @template ReturnT The final return type
+ * @template InT
+ * @template InReturnT
  */
 class TxOutput {
   /** @private */
-  constructor(handler, child) {
+  constructor(child) {
     /**
      * The current handler for the output
-     * @type {?Handler}
+     * @type {?Handler<InT,InReturnT>}
      */
-    this.handler = handler;
+    this.controller = null;
 
     /**
      * Set this value if you would like to run code on close
@@ -92,7 +94,8 @@ class TxOutput {
     this._finalIter = null;
 
     /**
-     * If the handler throws, then we will write an error to this child
+     * When an event occurs, it will call the child's controller.
+     * The child will change to null when it dies
      * @type {?TxOutput<*,*>}
      */
     this._child = child;
@@ -152,6 +155,9 @@ function runEvent(output, iteration) {
     output._finalIter = iteration;
   }
 
+  const child = output._child;
+  if (!child) return;
+
   const queueNode = {
     nextEvent: null,
     iteration,
@@ -170,14 +176,20 @@ function runEvent(output, iteration) {
   // There is not already a runEvent working, so we are the one in charge
 
   // run through the queue, it is allowed to grow as we go
-  for (let active = queueNode; active; active = active.nextEvent) {
-    const handler = output.handler;
+  let active = queueNode;
+  while (active) {
+    const handler = child.controller;
     if (handler) {
       try {
         handler(active.iteration, active.index);
+        active = active.nextEvent;
       } catch (error) {
-        output._child?.error(error);
+        output._child = null;
+        active = null; // kills the loop
+        child.error(error);
       }
+    } else {
+      active = null; // kill the loop
     }
   }
 
@@ -324,7 +336,7 @@ class AsyncGen {
    * Starts the generator
    */
   open() {
-    let output = new TxOutput(null, null);
+    let output = new TxOutput(null);
     const chain = [output];
 
     let gen = this;
@@ -333,8 +345,9 @@ class AsyncGen {
     while (parent) {
       // run the child
       const handler = gen._open(output, getCloseChain(chain, chain.length - 1));
+      output.controller = handler;
 
-      output = new TxOutput(handler, output);
+      output = new TxOutput(output);
       chain.push(output);
 
       gen = parent;
