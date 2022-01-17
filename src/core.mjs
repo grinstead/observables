@@ -398,20 +398,19 @@ class AsyncGen {
    * Starts the generator
    * @param {?function(T):void} outputCode An optional input
    */
-  open(outputCode) {
+  open(onNext, onComplete, onError) {
     const base = new TxOutput(null);
-    let top = base;
+    base.controller = ({ done, value }) => {
+      if (done === true) {
+        onComplete?.(value);
+      } else if (done) {
+        (onError || uncaughtErrorWhileRunning)(value);
+      } else {
+        onNext?.(value);
+      }
+    };
 
-    if (outputCode) {
-      base.controller = (iter) => {
-        if (!iter.done) {
-          outputCode(iter.value);
-        }
-      };
-
-      top = new TxOutput(top);
-    }
-
+    let top = new TxOutput(base);
     let gen = this;
     let parent = gen._parent;
     while (parent) {

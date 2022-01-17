@@ -36,19 +36,17 @@ export function timer(timeMs, arg) {
 export function mergeAll() {
   return makeTxOp((output) => {
     let wrappedReturn = null;
-    let running = new Set();
+    const children = new Set();
 
     output.onClose = () => {
-      const all = running;
-      running = null; // so they do not delete themselves
-      all.forEach((subtx) => {
-        subtx.close();
+      children.forEach((child) => {
+        child.close();
       });
     };
 
     return ({ done, value }) => {
       if (done === true) {
-        if (running.size === 0) {
+        if (children.size === 0) {
           output.complete(value);
         } else {
           wrappedReturn = [value];
@@ -57,23 +55,20 @@ export function mergeAll() {
         output.error(value);
       } else {
         openTx(value, (child) => {
-          running.add(child);
-
-          child.onClose = () => {
-            if (running) {
-              running.delete(child);
-              if (wrappedReturn && running.size === 0) {
-                output.complete(wrappedReturn[0]);
-              }
-            }
-          };
+          children.add(child);
 
           return ({ done, value }) => {
-            if (!done) {
-              output.next(value);
-            } else if (done !== true) {
+            if (done === true) {
+              children.delete(child);
+              if (wrappedReturn && children.size === 0) {
+                output.complete(wrappedReturn[0]);
+              }
+            } else if (done) {
+              children.delete(child);
               wrappedReturn = null;
               output.error(value);
+            } else {
+              output.next(value);
             }
           };
         });
