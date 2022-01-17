@@ -201,7 +201,6 @@ function runEvent(output, iteration) {
   }
 
   if (iteration.done) {
-    console.log("SCHEDULE CLOSE");
     output._state = TxState.Closing;
   }
 
@@ -339,38 +338,38 @@ class SyncStream {
   }
 }
 
-/**
- *
- * @template T
- * @template ReturnT
- * @param {SyncStream<T,ReturnT>} stream
- * @param {Handler<T,ReturnT>} handler
- */
-function subscribe(stream, handler) {
-  const child = makeChild(handler, stream._output._queueEnd?.iteration);
+// /**
+//  *
+//  * @template T
+//  * @template ReturnT
+//  * @param {SyncStream<T,ReturnT>} stream
+//  * @param {Handler<T,ReturnT>} handler
+//  */
+// function subscribe(stream, handler) {
+//   const child = makeChild(handler, stream._output._queueEnd?.iteration);
 
-  let children = stream._children;
-  if (children && children.handler) {
-    // a while loop is gross, but the assumption is that we rarely actually have
-    // more than one subscriber
-    while (children.nextChild) {
-      const nextChild = children.nextChild;
+//   let children = stream._children;
+//   if (children && children.handler) {
+//     // a while loop is gross, but the assumption is that we rarely actually have
+//     // more than one subscriber
+//     while (children.nextChild) {
+//       const nextChild = children.nextChild;
 
-      if (nextChild.handler) {
-        children = children.nextChild;
-      } else {
-        children.nextChild = nextChild.nextChild;
-      }
-    }
-    children.nextChild = child;
-  } else {
-    stream._children = child;
-  }
+//       if (nextChild.handler) {
+//         children = children.nextChild;
+//       } else {
+//         children.nextChild = nextChild.nextChild;
+//       }
+//     }
+//     children.nextChild = child;
+//   } else {
+//     stream._children = child;
+//   }
 
-  // todo, trigger something
-}
+//   // todo, trigger something
+// }
 
-class AsyncIteration {
+class AsyncIterator {
   /**
    *
    * @param {TxOutput<*,*,*,*>} chain
@@ -404,10 +403,9 @@ class AsyncGen {
     let top = base;
 
     if (outputCode) {
-      const unsubscribe = () => base.close();
       base.controller = (iter) => {
         if (!iter.done) {
-          outputCode(iter.value, unsubscribe);
+          outputCode(iter.value);
         }
       };
 
@@ -431,7 +429,11 @@ class AsyncGen {
     const code = gen._open;
     code(top);
 
-    return new AsyncIteration(top);
+    return new AsyncIterator(top);
+  }
+
+  pipe(...ops) {
+    return ops.reduce((acc, op) => (op ? op(acc) : acc), this);
   }
 }
 
@@ -453,30 +455,32 @@ export function makeTx(code) {
  * @template InReturnT
  * @template T
  * @template ReturnT
- * @param {function(TxOutput<T,ReturnT>,function():void):Handler<InT,InReturnT>} code
+ * @param {AsyncGen<InT,InReturnT>} gen
+ * @param {function(TxOutput<T,ReturnT>):Handler<InT,InReturnT>} code
+ * @returns {AsyncIterator}
+ */
+export function openTx(gen, code) {
+  return new AsyncGen(gen, code).open();
+}
+
+/**
+ *
+ * @template InT
+ * @template InReturnT
+ * @template T
+ * @template ReturnT
+ * @param {function(TxOutput<T,ReturnT>):Handler<InT,InReturnT>} code
  * @returns {TxOp<InT,InReturnT,T,ReturnT>}
  */
 export function makeTxOp(code) {
   return (input) => new AsyncGen(input, code);
 }
 
-export function of(...args) {
-  return makeTx((output) => {
-    args.forEach((x) => output.next(x));
-  });
-}
-
-function map(mapper) {
-  return makeTxOp((output) => (iter) => {
-    try {
-      output.next(mapper(iter.value));
-    } catch (error) {
-      output.error(error);
-    }
-  });
-}
-
 function uncaughtErrorWhileRunning(error) {
   // hopefully the user will get a visual report
   Promise.reject(error);
+}
+
+export function pipe(gen, ...ops) {
+  return ops.reduce((acc, op) => (op ? op(acc) : acc), gen);
 }
