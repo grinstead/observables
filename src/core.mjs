@@ -134,22 +134,21 @@ class TxOutput {
     runEvent(this, { done: true, value: returnVal });
   }
 
+  /**
+   * Ends the output with the given error
+   * @param {*} error
+   */
   error(error) {
     runEvent(this, { done: "error", value: error });
   }
 
+  /**
+   * Sends the iterator as-is straight down to the child.
+   * If `iter.done` is truthy, the output will end
+   * @param {Iteration<T, ReturnT>} iter
+   */
   iter(iter) {
-    // I would rather clone the iter than send it down straight
-    // so this is just a convenience method
-    const { done, value } = iter;
-
-    if (!done) {
-      this.next(value);
-    } else if (done === true) {
-      this.complete(value);
-    } else {
-      this.error(value);
-    }
+    runEvent(this, iter);
   }
 
   close() {
