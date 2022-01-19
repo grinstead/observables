@@ -64,6 +64,18 @@ test("concat", async (got, expect) => {
   );
   got(2);
   expect(3);
+
+  concat(constants([0, 1, 2], -1), constants([3, 4], 5)).run(got, got);
+  expect(6);
+
+  concat(
+    constants([0, 1]),
+    constants([2, 3]),
+    constants([5, 6], 7).pipe(resolvePromises()) // asynchronously completes
+  ).run(got, got);
+  got(4);
+  await delay(0);
+  expect(8);
 });
 
 test("map", async (got, expect) => {

@@ -55,27 +55,43 @@ export function concat(...els) {
 
   return makeTx((output) => {
     let nextIndex = 0;
+
     const runNext = (completedVal) => {
-      const index = nextIndex++;
-      if (index === els.length) {
-        output.complete(completedVal);
-      } else {
-        runTx(els[index], (source) => {
-          output.onClose = () => {
-            source.abandon();
-          };
-          return ({ done, value }) => {
-            if (done === true) {
-              runNext(value);
-            } else if (done) {
-              output.error(value);
-            } else {
-              output.next(value);
-            }
-          };
-        });
+      let runNextSynchronous = true;
+
+      // to avoid deeply nested recursion, we will run all the synchronous
+      // elements in this flatter loop
+      while (runNextSynchronous) {
+        runNextSynchronous = false;
+
+        const index = nextIndex++;
+        if (index === els.length) {
+          output.complete(completedVal);
+        } else {
+          runTx(els[index], (source) => {
+            output.onClose = () => {
+              source.abandon();
+            };
+            return (iter) => {
+              if (iter.done === true) {
+                if (!runNextSynchronous) {
+                  runNextSynchronous = true;
+                } else {
+                  runNext(iter.value);
+                }
+              } else {
+                output.iter(iter);
+              }
+            };
+          });
+        }
       }
+
+      // tell the child it can run itself
+      runNextSynchronous = true;
     };
+
+    runNext();
   });
 }
 
