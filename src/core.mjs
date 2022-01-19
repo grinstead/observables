@@ -370,12 +370,25 @@ class SyncStream {
 
 class AsyncIterator {
   /**
-   *
+   * Creates an AsyncIterator that exposes the close command
    * @param {TxOutput<*,*,*,*>} chain
    * @private
    */
   constructor(chain) {
+    /**
+     * Closes the iterator, no more events will fire from it
+     * @type {function():void}
+     * @readonly
+     * @public
+     */
     this.close = () => chain.close();
+
+    /**
+     * Whether or not the iterator completed without error
+     * @type {boolean}
+     * @public
+     */
+    this.completed = false;
   }
 }
 
@@ -395,21 +408,13 @@ export class AsyncGen {
 
   /**
    * Starts the generator
-   * @param {?function(T):void} outputCode An optional input
+   * @param {?function(T):void=} onNext Called when the generator closes
+   * @param {?function(ReturnT):void=} onComplete Called when the generator complets
+   * @param {?function(*):void} onError Called when the generator errors
    * @returns {AsyncIterator}
    */
   open(onNext, onComplete, onError) {
     const base = new TxOutput(null);
-    base.controller = ({ done, value }) => {
-      if (done === true) {
-        onComplete?.(value);
-      } else if (done) {
-        (onError || uncaughtErrorWhileRunning)(value);
-      } else {
-        onNext?.(value);
-      }
-    };
-
     let top = new TxOutput(base);
     let gen = this;
     let parent = gen._parent;
@@ -424,11 +429,24 @@ export class AsyncGen {
       parent = parent._parent;
     }
 
+    // set up the iterator
+    const iterator = new AsyncIterator(top);
+    base.controller = ({ done, value }) => {
+      if (done === true) {
+        iterator.completed = true;
+        onComplete?.(value);
+      } else if (done) {
+        (onError || uncaughtErrorWhileRunning)(value);
+      } else {
+        onNext?.(value);
+      }
+    };
+
     // actually start the output stream
     const code = gen._open;
     code(top);
 
-    return new AsyncIterator(top);
+    return iterator;
   }
 
   pipe(...ops) {
