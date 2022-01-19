@@ -1,7 +1,19 @@
 import { makeTxOp, makeTx, pipe } from "./core.mjs";
-import { defer, mergeAll, of, timer } from "./operators.mjs";
+import {
+  concat,
+  constants,
+  defer,
+  mergeAll,
+  of,
+  resolvePromises,
+  returns,
+  timer,
+} from "./operators.mjs";
 import { test } from "./test_utils.mjs";
 import { delay } from "https://deno.land/std@0.121.0/async/delay.ts";
+
+const TICK = 30;
+const TWO_TICKS = 2 * TICK;
 
 test("of", (got, expect) => {
   got(0);
@@ -23,6 +35,17 @@ test("defer", (got, expect) => {
   expect(7);
 });
 
+test("resolvePromises", async (got, expect) => {
+  constants([1, delay(TICK).then(() => 2), Promise.resolve(3), 4], 5)
+    .pipe(resolvePromises())
+    .open(got, got);
+  got(0);
+
+  await delay(TWO_TICKS);
+
+  expect(6);
+});
+
 test("mergeAll", async (got, expect) => {
   // test synchronous
   pipe(of(of(0, 1), of(2, 3)), mergeAll()).open(got);
@@ -30,28 +53,39 @@ test("mergeAll", async (got, expect) => {
   expect(5);
 });
 
+test("concat", async (got, expect) => {
+  got(0);
+  concat().open(
+    () => got("gave a value"),
+    (result) => got(result === undefined && 1),
+    () => got(-1)
+  );
+  got(2);
+  expect(3);
+});
+
 test("timer", async (got, expect) => {
   // check basics
   got(0);
-  const x = timer(100, 3);
-  await delay(200);
+  const x = timer(TICK, 3);
+  await delay(TWO_TICKS);
   got(1);
   x.open(got);
   got(2);
-  await delay(200);
+  await delay(TWO_TICKS);
   got(4);
   expect(5);
 
   // check that it unsubscribes correctly
   got(0);
-  const y = timer(100, "failed to unsubscribe");
-  await delay(200);
+  const y = timer(TICK, "failed to unsubscribe");
+  await delay(TWO_TICKS);
   got(1);
   const sub = y.open(got);
   got(2);
-  await delay(50);
+  await delay(0);
   sub.close();
   got(3);
-  await delay(200);
+  await delay(TWO_TICKS);
   expect(4);
 });

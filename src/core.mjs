@@ -30,7 +30,7 @@ let IterRound;
  * @template OutReturnT
  * @typedef {function(AsyncGen<InT,InReturnT>):AsyncGen<OutT,OutReturnT>} TxOp
  */
-let TxOp;
+export let TxOp;
 
 /**
  * Subscribers are held in a linked-list of their handlers. If the handler is
@@ -484,3 +484,7 @@ function uncaughtErrorWhileRunning(error) {
 export function pipe(gen, ...ops) {
   return ops.reduce((acc, op) => (op ? op(acc) : acc), gen);
 }
+
+export const EMPTY = makeTx((output) => {
+  output.complete();
+});
