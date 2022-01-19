@@ -385,7 +385,7 @@ class AsyncIterator {
  * @template T
  * @template ReturnT
  */
-class AsyncGen {
+export class AsyncGen {
   /**
    * @private
    */
@@ -397,6 +397,7 @@ class AsyncGen {
   /**
    * Starts the generator
    * @param {?function(T):void} outputCode An optional input
+   * @returns {AsyncIterator}
    */
   open(onNext, onComplete, onError) {
     const base = new TxOutput(null);

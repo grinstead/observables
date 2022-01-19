@@ -1,4 +1,4 @@
-import { openTx, makeTx, makeTxOp } from "./core.mjs";
+import { openTx, makeTx, makeTxOp, AsyncGen } from "./core.mjs";
 
 export function of(...args) {
   return makeTx((output) => {
@@ -19,6 +19,13 @@ export function defer(code) {
   });
 }
 
+/**
+ * Returns a timer that fires a value after the given time
+ * @template T
+ * @param {number} timeMs
+ * @param {T} arg
+ * @returns {AsyncGen<T,void>}
+ */
 export function timer(timeMs, arg) {
   return makeTx((output) => {
     const timeoutId = setTimeout(() => {

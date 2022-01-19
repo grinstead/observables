@@ -1,57 +1,57 @@
 import { makeTxOp, makeTx, pipe } from "./core.mjs";
 import { defer, mergeAll, of, timer } from "./operators.mjs";
+import { test } from "./test_utils.mjs";
+import { delay } from "https://deno.land/std@0.121.0/async/delay.ts";
 
-console.log("Hi");
+test("of", (got, expect) => {
+  got(0);
+  of(1, 2, 3).open(got);
+  got(4);
 
-of(1, 2, 3).open(console.log);
+  expect(5);
+});
 
-defer(() => {
-  console.log("defer");
-  return of(1, 2, 3);
-}).open(console.log);
+test("defer", (got, expect) => {
+  got(0);
+  const x = defer(() => {
+    got(2);
+    return of(3, 4, 5);
+  });
+  got(1);
+  x.open(got);
+  got(6);
+  expect(7);
+});
 
-pipe(of(of("a1", "a2"), of("b1", "b2")), mergeAll()).open(console.log);
+test("mergeAll", async (got, expect) => {
+  // test synchronous
+  pipe(of(of(0, 1), of(2, 3)), mergeAll()).open(got);
+  got(4);
+  expect(5);
+});
 
-timer(1000, "hi").open(console.log);
+test("timer", async (got, expect) => {
+  // check basics
+  got(0);
+  const x = timer(100, 3);
+  await delay(200);
+  got(1);
+  x.open(got);
+  got(2);
+  await delay(200);
+  got(4);
+  expect(5);
 
-// let gen = makeTx((output) => {
-//   let running = true;
-//   output.onClose = () => {
-//     console.log("A closed");
-//     running = false;
-//   };
-
-//   [0, 1, 2, 3, 4].every((x) => {
-//     console.log(`A${x}`);
-//     output.next(x);
-//     return running;
-//   }) && output.complete();
-// });
-
-// gen = makeTxOp((output) => (iter, index) => {
-//   output.onClose = () => {
-//     console.log("B closed");
-//   };
-
-//   console.log("B", iter, index);
-//   output.iter(iter);
-
-//   if (index === 2) {
-//     // console.log("SEND COMPLETE");
-//     output.complete();
-//     // console.log("COMPLETE COMPLETE");
-//     throw new Error("FAIL");
-//   }
-// })(gen);
-
-// gen = makeTxOp((output) => (iter) => {
-//   output.onClose = () => {
-//     console.log("C closed");
-//   };
-//   console.log("C", iter);
-//   output.iter(iter);
-// })(gen);
-
-// gen.open((val) => {
-//   console.log("D", val);
-// });
+  // check that it unsubscribes correctly
+  got(0);
+  const y = timer(100, "failed to unsubscribe");
+  await delay(200);
+  got(1);
+  const sub = y.open(got);
+  got(2);
+  await delay(50);
+  sub.close();
+  got(3);
+  await delay(200);
+  expect(4);
+});
