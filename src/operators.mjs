@@ -158,6 +158,42 @@ export function resolvePromises() {
 }
 
 /**
+ * Maps each value to a new value
+ * @template In
+ * @template Out
+ * @template ReturnT
+ * @param {function(In, number):Out} mapper
+ * @returns {TxOp<In, ReturnT, Out, ReturnT>}
+ */
+export function map(mapper) {
+  return makeTxOp((output) => (iter, index) => {
+    if (iter.done) {
+      output.iter(iter);
+    } else {
+      output.next(mapper(iter.value, index));
+    }
+  });
+}
+
+/**
+ * Filters out the values that return falsy
+ * @template T
+ * @template ReturnT
+ * @param {function(T,number):boolean} filterFunc The function, passed both the value and the index
+ * @returns {TxOp<T, ReturnT, T, ReturnT>}
+ */
+export function filter(filterFunc) {
+  return makeTxOp((output) => (iter, index) => {
+    if (iter.done) {
+      output.iter(iter);
+    } else {
+      const { value } = iter;
+      filterFunc(value, index) && output.next(value);
+    }
+  });
+}
+
+/**
  * Takes a generator of generators and flattens them into one generator
  * @template T
  * @template ReturnT

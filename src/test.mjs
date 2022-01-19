@@ -3,6 +3,8 @@ import {
   concat,
   constants,
   defer,
+  filter,
+  map,
   mergeAll,
   of,
   resolvePromises,
@@ -61,6 +63,29 @@ test("concat", async (got, expect) => {
     () => got(-1)
   );
   got(2);
+  expect(3);
+});
+
+test("map", async (got, expect) => {
+  pipe(
+    constants([0, 2], 4),
+    map((num, index) => {
+      got(num === 2 * index);
+      return 1 + num;
+    })
+  ).open(got, got);
+
+  expect(5);
+});
+
+test("filter", async (got, expect) => {
+  pipe(
+    constants([-1, 0, 10, -2, 0, 1], 2),
+    filter((num, index) => {
+      return index & 1 && num >= 0;
+    })
+  ).open(got, got);
+
   expect(3);
 });
 
