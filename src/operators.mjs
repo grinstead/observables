@@ -1,10 +1,10 @@
-import { openTx, makeTx, makeTxOp, AsyncGen, TxOp, EMPTY } from "./core.mjs";
+import { openTx, makeTx, makeTxOp, TxGenerator, TxOp, EMPTY } from "./core.mjs";
 
 /**
  * Creates a generator that outputs the given args
  * @template T
  * @param  {...T} args
- * @returns {AsyncGen<T,void>}
+ * @returns {TxGenerator<T,void>}
  */
 export function of(...args) {
   return constants(args);
@@ -16,7 +16,7 @@ export function of(...args) {
  * @template ReturnT
  * @param {Array<T>} constants
  * @param {ReturnT} result
- * @returns {AsyncGen<T,ReturnT>}
+ * @returns {TxGenerator<T,ReturnT>}
  */
 export function constants(constants, result) {
   return makeTx((output) => {
@@ -32,7 +32,7 @@ export function constants(constants, result) {
  * Creates a generator that synchronously completes with the given value
  * @template T
  * @param {T} returnValue
- * @returns {AsyncGen<*, T>}
+ * @returns {TxGenerator<*, T>}
  */
 export function returns(returnValue) {
   return makeTx((output) => {
@@ -45,8 +45,8 @@ export function returns(returnValue) {
  * The final return value will become the return value of the result.
  * If no arguments are supplied, it returns EMPTY
  * @template T
- * @param {...AsyncGen<T, *>} els
- * @returns {AsyncGen<T, *>}
+ * @param {...TxGenerator<T, *>} els
+ * @returns {TxGenerator<T, *>}
  */
 export function concat(...els) {
   if (els.length === 0) {
@@ -62,7 +62,7 @@ export function concat(...els) {
       } else {
         openTx(els[index], (source) => {
           output.onClose = () => {
-            source.close();
+            source.abandon();
           };
           return ({ done, value }) => {
             if (done === true) {
@@ -83,13 +83,13 @@ export function concat(...els) {
  * Runs code when the generator opens
  * @template T
  * @template ReturnT
- * @param {function():AsyncGen<T,ReturnT>} code
- * @returns {AsyncGen<T,ReturnT>}
+ * @param {function():TxGenerator<T,ReturnT>} code
+ * @returns {TxGenerator<T,ReturnT>}
  */
 export function defer(code) {
   return makeTx((output) => {
     openTx(code(), (child) => {
-      output.onClose = () => child.close();
+      output.onClose = () => child.abandon();
       return (iter) => {
         output.iter(iter);
       };
@@ -102,7 +102,7 @@ export function defer(code) {
  * @template T
  * @param {number} timeMs
  * @param {T} arg
- * @returns {AsyncGen<T,void>}
+ * @returns {TxGenerator<T,void>}
  */
 export function timer(timeMs, arg) {
   return makeTx((output) => {
@@ -197,7 +197,7 @@ export function filter(filterFunc) {
  * Takes a generator of generators and flattens them into one generator
  * @template T
  * @template ReturnT
- * @returns {TxOp<AsyncGen<T, *>, ReturnT, T, ReturnT>}
+ * @returns {TxOp<TxGenerator<T, *>, ReturnT, T, ReturnT>}
  */
 export function mergeAll() {
   return makeTxOp((output) => {
@@ -206,7 +206,7 @@ export function mergeAll() {
 
     output.onClose = () => {
       children.forEach((child) => {
-        child.close();
+        child.abandon();
       });
     };
 

@@ -28,7 +28,7 @@ let IterRound;
  * @template InReturnT
  * @template OutT
  * @template OutReturnT
- * @typedef {function(AsyncGen<InT,InReturnT>):AsyncGen<OutT,OutReturnT>} TxOp
+ * @typedef {function(TxGenerator<InT,InReturnT>):TxGenerator<OutT,OutReturnT>} TxOp
  */
 export let TxOp;
 
@@ -85,7 +85,8 @@ class TxOutput {
     this.controller = null;
 
     /**
-     * Set this value if you would like to run code on close
+     * Set this value if you would like to run code on close. Closing happens
+     * when the TxOutput sends a complete, sends an error, or is abandoned
      * @type {?function():void}
      */
     this.onClose = null;
@@ -151,7 +152,15 @@ class TxOutput {
     runEvent(this, iter);
   }
 
-  close() {
+  /**
+   * This function will cease all future outputs, as well as that of its parent
+   * (and so on), calling the various onClose methods that are defined (in
+   * first-most parent to this output order).
+   *
+   * It is ok to call this function multiple times, it is idempotent and will do
+   * nothing if the TxOutput was already abandoned.
+   */
+  abandon() {
     if (this._state === TxState.Closed) {
       return;
     }
@@ -229,7 +238,7 @@ function runEvent(output, iteration) {
     const { iteration, index, nextEvent } = active;
 
     if (iteration.done) {
-      output.close();
+      output.abandon();
     }
 
     // set it to null, if we are successful then it gets set to nextEvent
@@ -242,7 +251,7 @@ function runEvent(output, iteration) {
         active = nextEvent;
       } catch (error) {
         // is idempotent
-        output.close();
+        output.abandon();
 
         if (child._state === TxState.Open) {
           child.error(error);
@@ -368,23 +377,23 @@ class SyncStream {
 //   // todo, trigger something
 // }
 
-class AsyncIterator {
+export class TxSubscription {
   /**
-   * Creates an AsyncIterator that exposes the close command
+   * Creates an TxSubscription that exposes the abandon command
    * @param {TxOutput<*,*,*,*>} chain
    * @private
    */
   constructor(chain) {
     /**
-     * Closes the iterator, no more events will fire from it
+     * Abandon the subscription, no more events will fire within it
      * @type {function():void}
      * @readonly
      * @public
      */
-    this.close = () => chain.close();
+    this.abandon = () => chain.abandon();
 
     /**
-     * Whether or not the iterator completed without error
+     * Whether or not the subscription completed without error
      * @type {boolean}
      * @public
      */
@@ -397,8 +406,10 @@ class AsyncIterator {
  * @template T
  * @template ReturnT
  */
-export class AsyncGen {
+export class TxGenerator {
   /**
+   * Do not use this function directly, instead use {@link makeTx},
+   * {@link openTx}, or {@link makeTxOp}.
    * @private
    */
   constructor(parent, code) {
@@ -408,10 +419,10 @@ export class AsyncGen {
 
   /**
    * Starts the generator
-   * @param {?function(T):void=} onNext Called when the generator closes
-   * @param {?function(ReturnT):void=} onComplete Called when the generator complets
+   * @param {?function(T):void=} onNext Called when the generator outputs a value
+   * @param {?function(ReturnT):void=} onComplete Called when the generator completes
    * @param {?function(*):void} onError Called when the generator errors
-   * @returns {AsyncIterator}
+   * @returns {TxSubscription}
    */
   open(onNext, onComplete, onError) {
     const base = new TxOutput(null);
@@ -429,11 +440,11 @@ export class AsyncGen {
       parent = parent._parent;
     }
 
-    // set up the iterator
-    const iterator = new AsyncIterator(top);
+    // set up the subscription
+    const sub = new TxSubscription(top);
     base.controller = ({ done, value }) => {
       if (done === true) {
-        iterator.completed = true;
+        sub.completed = true;
         onComplete?.(value);
       } else if (done) {
         (onError || uncaughtErrorWhileRunning)(value);
@@ -446,7 +457,7 @@ export class AsyncGen {
     const code = gen._open;
     code(top);
 
-    return iterator;
+    return sub;
   }
 
   pipe(...ops) {
@@ -460,10 +471,10 @@ export class AsyncGen {
  * @template T
  * @template ReturnT
  * @param {function(TxOutput<T,ReturnT>):void} code
- * @returns {AsyncGen<T,ReturnT>}
+ * @returns {TxGenerator<T,ReturnT>}
  */
 export function makeTx(code) {
-  return new AsyncGen(null, code);
+  return new TxGenerator(null, code);
 }
 
 /**
@@ -472,12 +483,12 @@ export function makeTx(code) {
  * @template InReturnT
  * @template T
  * @template ReturnT
- * @param {AsyncGen<InT,InReturnT>} gen
+ * @param {TxGenerator<InT,InReturnT>} gen
  * @param {function(TxOutput<T,ReturnT>):Handler<InT,InReturnT>} code
- * @returns {AsyncIterator}
+ * @returns {TxSubscription}
  */
 export function openTx(gen, code) {
-  return new AsyncGen(gen, code).open();
+  return new TxGenerator(gen, code).open();
 }
 
 /**
@@ -490,7 +501,7 @@ export function openTx(gen, code) {
  * @returns {TxOp<InT,InReturnT,T,ReturnT>}
  */
 export function makeTxOp(code) {
-  return (input) => new AsyncGen(input, code);
+  return (input) => new TxGenerator(input, code);
 }
 
 function uncaughtErrorWhileRunning(error) {

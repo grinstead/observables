@@ -109,7 +109,7 @@ test("timer", async (got, expect) => {
   const sub = y.open(got);
   got(2);
   await delay(0);
-  sub.close();
+  sub.abandon();
   got(3);
   await delay(TWO_TICKS);
   expect(4);
