@@ -19,7 +19,7 @@ const TWO_TICKS = 2 * TICK;
 
 test("of", (got, expect) => {
   got(0);
-  of(1, 2, 3).open(got);
+  of(1, 2, 3).run(got);
   got(4);
 
   expect(5);
@@ -32,7 +32,7 @@ test("defer", (got, expect) => {
     return of(3, 4, 5);
   });
   got(1);
-  x.open(got);
+  x.run(got);
   got(6);
   expect(7);
 });
@@ -40,7 +40,7 @@ test("defer", (got, expect) => {
 test("resolvePromises", async (got, expect) => {
   constants([1, delay(TICK).then(() => 2), Promise.resolve(3), 4], 5)
     .pipe(resolvePromises())
-    .open(got, got);
+    .run(got, got);
   got(0);
 
   await delay(TWO_TICKS);
@@ -50,14 +50,14 @@ test("resolvePromises", async (got, expect) => {
 
 test("mergeAll", async (got, expect) => {
   // test synchronous
-  pipe(of(of(0, 1), of(2, 3)), mergeAll()).open(got);
+  pipe(of(of(0, 1), of(2, 3)), mergeAll()).run(got);
   got(4);
   expect(5);
 });
 
 test("concat", async (got, expect) => {
   got(0);
-  concat().open(
+  concat().run(
     () => got("gave a value"),
     (result) => got(result === undefined && 1),
     () => got(-1)
@@ -73,7 +73,7 @@ test("map", async (got, expect) => {
       got(num === 2 * index);
       return 1 + num;
     })
-  ).open(got, got);
+  ).run(got, got);
 
   expect(5);
 });
@@ -84,7 +84,7 @@ test("filter", async (got, expect) => {
     filter((num, index) => {
       return index & 1 && num >= 0;
     })
-  ).open(got, got);
+  ).run(got, got);
 
   expect(3);
 });
@@ -95,7 +95,7 @@ test("timer", async (got, expect) => {
   const x = timer(TICK, 3);
   await delay(TWO_TICKS);
   got(1);
-  x.open(got);
+  x.run(got);
   got(2);
   await delay(TWO_TICKS);
   got(4);
@@ -106,7 +106,7 @@ test("timer", async (got, expect) => {
   const y = timer(TICK, "failed to unsubscribe");
   await delay(TWO_TICKS);
   got(1);
-  const sub = y.open(got);
+  const sub = y.run(got);
   got(2);
   await delay(0);
   sub.abandon();

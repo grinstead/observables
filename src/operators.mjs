@@ -1,4 +1,4 @@
-import { openTx, makeTx, makeTxOp, TxGenerator, TxOp, EMPTY } from "./core.mjs";
+import { runTx, makeTx, makeTxOp, TxGenerator, TxOp, EMPTY } from "./core.mjs";
 
 /**
  * Creates a generator that outputs the given args
@@ -55,18 +55,18 @@ export function concat(...els) {
 
   return makeTx((output) => {
     let nextIndex = 0;
-    const openNext = (completedVal) => {
+    const runNext = (completedVal) => {
       const index = nextIndex++;
       if (index === els.length) {
         output.complete(completedVal);
       } else {
-        openTx(els[index], (source) => {
+        runTx(els[index], (source) => {
           output.onClose = () => {
             source.abandon();
           };
           return ({ done, value }) => {
             if (done === true) {
-              openNext(value);
+              runNext(value);
             } else if (done) {
               output.error(value);
             } else {
@@ -88,7 +88,7 @@ export function concat(...els) {
  */
 export function defer(code) {
   return makeTx((output) => {
-    openTx(code(), (child) => {
+    runTx(code(), (child) => {
       output.onClose = () => child.abandon();
       return (iter) => {
         output.iter(iter);
@@ -220,7 +220,7 @@ export function mergeAll() {
       } else if (done) {
         output.error(value);
       } else {
-        openTx(value, (child) => {
+        runTx(value, (child) => {
           children.add(child);
 
           return ({ done, value }) => {

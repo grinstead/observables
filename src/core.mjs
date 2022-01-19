@@ -409,7 +409,7 @@ export class TxSubscription {
 export class TxGenerator {
   /**
    * Do not use this function directly, instead use {@link makeTx},
-   * {@link openTx}, or {@link makeTxOp}.
+   * {@link runTx}, or {@link makeTxOp}.
    * @private
    */
   constructor(parent, code) {
@@ -419,12 +419,12 @@ export class TxGenerator {
 
   /**
    * Starts the generator
-   * @param {?function(T):void=} onNext Called when the generator outputs a value
-   * @param {?function(ReturnT):void=} onComplete Called when the generator completes
+   * @param {?function(T,number):void=} onNext Called when the generator outputs a value
+   * @param {?function(ReturnT,number):void=} onComplete Called when the generator completes
    * @param {?function(*):void} onError Called when the generator errors
    * @returns {TxSubscription}
    */
-  open(onNext, onComplete, onError) {
+  run(onNext, onComplete, onError) {
     const base = new TxOutput(null);
     let top = new TxOutput(base);
     let gen = this;
@@ -442,14 +442,14 @@ export class TxGenerator {
 
     // set up the subscription
     const sub = new TxSubscription(top);
-    base.controller = ({ done, value }) => {
+    base.controller = ({ done, value }, index) => {
       if (done === true) {
         sub.completed = true;
-        onComplete?.(value);
+        onComplete?.(value, index);
       } else if (done) {
         (onError || uncaughtErrorWhileRunning)(value);
       } else {
-        onNext?.(value);
+        onNext?.(value, index);
       }
     };
 
@@ -478,7 +478,9 @@ export function makeTx(code) {
 }
 
 /**
- *
+ * Runs the given generator with a function that sees the raw iterator values.
+ * This is a bit more advanced, but it enables unsubscribing while receiving
+ * values synchronously.
  * @template InT
  * @template InReturnT
  * @template T
@@ -487,8 +489,8 @@ export function makeTx(code) {
  * @param {function(TxOutput<T,ReturnT>):Handler<InT,InReturnT>} code
  * @returns {TxSubscription}
  */
-export function openTx(gen, code) {
-  return new TxGenerator(gen, code).open();
+export function runTx(gen, code) {
+  return new TxGenerator(gen, code).run();
 }
 
 /**
