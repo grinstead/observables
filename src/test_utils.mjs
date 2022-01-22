@@ -7,7 +7,7 @@ export function test(name, code) {
       localError = new Error(input);
     } else if (input === false) {
       localError = new Error(`got false`);
-    } else if (input === true || (input === input) | 0) {
+    } else if (input === true || input === (input | 0)) {
       const num = input === true ? goodBelow : input;
 
       if (num < 0) {

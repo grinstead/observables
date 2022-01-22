@@ -4,39 +4,25 @@ import { runTx, makeTx, makeTxOp, TxGenerator, TxOp, EMPTY } from "./core.mjs";
  * Creates a generator that outputs the given args
  * @template T
  * @param  {...T} args
- * @returns {TxGenerator<T,void>}
+ * @returns {TxGenerator<T>}
  */
 export function of(...args) {
-  return constants(args);
+  return from(args);
 }
 
 /**
  * Creates a generator that outputs the given elements and ends with the result
  * @template T
- * @template ReturnT
  * @param {Array<T>} constants
- * @param {ReturnT} result
- * @returns {TxGenerator<T,ReturnT>}
+ * @returns {TxGenerator<T>}
  */
-export function constants(constants, result) {
+export function from(constants) {
   return makeTx((output) => {
     const length = constants.length;
     for (let i = 0; i < length; i++) {
       output.next(constants[i]);
     }
-    output.complete(result);
-  });
-}
-
-/**
- * Creates a generator that synchronously completes with the given value
- * @template T
- * @param {T} returnValue
- * @returns {TxGenerator<*, T>}
- */
-export function returns(returnValue) {
-  return makeTx((output) => {
-    output.complete(returnValue);
+    output.complete();
   });
 }
 
@@ -45,8 +31,8 @@ export function returns(returnValue) {
  * The final return value will become the return value of the result.
  * If no arguments are supplied, it returns EMPTY
  * @template T
- * @param {...TxGenerator<T, *>} els
- * @returns {TxGenerator<T, *>}
+ * @param {...TxGenerator<T>} els
+ * @returns {TxGenerator<T>}
  */
 export function concat(...els) {
   if (els.length === 0) {
@@ -56,7 +42,7 @@ export function concat(...els) {
   return makeTx((output) => {
     let nextIndex = 0;
 
-    const runNext = (completedVal) => {
+    const runNext = () => {
       let runNextSynchronous = true;
 
       // to avoid deeply nested recursion, we will run all the synchronous
@@ -66,18 +52,19 @@ export function concat(...els) {
 
         const index = nextIndex++;
         if (index === els.length) {
-          output.complete(completedVal);
+          output.complete();
         } else {
           runTx(els[index], (source) => {
             output.onClose = () => {
               source.abandon();
             };
+
             return (iter) => {
-              if (iter.done === true) {
+              if (iter.done && !iter.value) {
                 if (!runNextSynchronous) {
                   runNextSynchronous = true;
                 } else {
-                  runNext(iter.value);
+                  runNext();
                 }
               } else {
                 output.iter(iter);
@@ -98,14 +85,16 @@ export function concat(...els) {
 /**
  * Runs code when the generator opens
  * @template T
- * @template ReturnT
- * @param {function():TxGenerator<T,ReturnT>} code
- * @returns {TxGenerator<T,ReturnT>}
+ * @param {function():TxGenerator<T>} code
+ * @returns {TxGenerator<T>}
  */
 export function defer(code) {
   return makeTx((output) => {
     runTx(code(), (child) => {
-      output.onClose = () => child.abandon();
+      output.onClose = () => {
+        child.abandon();
+      };
+
       return (iter) => {
         output.iter(iter);
       };
@@ -118,7 +107,7 @@ export function defer(code) {
  * @template T
  * @param {number} timeMs
  * @param {T} arg
- * @returns {TxGenerator<T,void>}
+ * @returns {TxGenerator<T>}
  */
 export function timer(timeMs, arg) {
   return makeTx((output) => {
@@ -138,8 +127,7 @@ export function timer(timeMs, arg) {
  * Takes the input values and waits for the promises to resolve. Note that this
  * will always bump values to a promise tick.
  * @template T
- * @template ReturnT
- * @returns {TxOp<Promise<T>|T, ReturnT, T, ReturnT>}
+ * @returns {TxOp<Promise<T>|T, T>}
  */
 export function resolvePromises() {
   return makeTxOp((output) => {
@@ -150,25 +138,30 @@ export function resolvePromises() {
       promise = null;
     };
 
-    return ({ done, value }) => {
-      // pass on errors immediately
-      if (done && done !== true) {
-        output.error(value);
-        return;
+    return (iter) => {
+      if (iter.done) {
+        if (iter.value) {
+          // pass on errors immediately
+          output.iter(iter);
+        } else {
+          // wait until the previous promises finish before completing
+          promise = promise.then(() => {
+            promise && output.iter(iter);
+          });
+        }
+      } else {
+        // the promise will be defined at this point, but may not be by the time it resolves
+        promise = promise
+          .then(() => iter.value)
+          .then(
+            (resolved) => {
+              promise && output.next(resolved);
+            },
+            (error) => {
+              promise && output.error(error);
+            }
+          );
       }
-
-      // the promise will be defined at this point, but may not be by the time it resolves
-      promise = promise
-        .then(() => value)
-        .then(
-          (resolved) => {
-            promise &&
-              (done ? output.complete(resolved) : output.next(resolved));
-          },
-          (error) => {
-            promise && output.error(error);
-          }
-        );
     };
   });
 }
@@ -177,9 +170,8 @@ export function resolvePromises() {
  * Maps each value to a new value
  * @template In
  * @template Out
- * @template ReturnT
  * @param {function(In, number):Out} mapper
- * @returns {TxOp<In, ReturnT, Out, ReturnT>}
+ * @returns {TxOp<In, Out>}
  */
 export function map(mapper) {
   return makeTxOp((output) => (iter, index) => {
@@ -194,30 +186,23 @@ export function map(mapper) {
 /**
  * Filters out the values that return falsy
  * @template T
- * @template ReturnT
  * @param {function(T,number):boolean} filterFunc The function, passed both the value and the index
- * @returns {TxOp<T, ReturnT, T, ReturnT>}
+ * @returns {TxOp<T, T>}
  */
 export function filter(filterFunc) {
   return makeTxOp((output) => (iter, index) => {
-    if (iter.done) {
-      output.iter(iter);
-    } else {
-      const { value } = iter;
-      filterFunc(value, index) && output.next(value);
-    }
+    (iter.done || filterFunc(iter.value, index)) && output.iter(iter);
   });
 }
 
 /**
  * Takes a generator of generators and flattens them into one generator
  * @template T
- * @template ReturnT
- * @returns {TxOp<TxGenerator<T, *>, ReturnT, T, ReturnT>}
+ * @returns {TxOp<TxGenerator<T>, T>}
  */
 export function mergeAll() {
   return makeTxOp((output) => {
-    let wrappedReturn = null;
+    let outerCompleted = false;
     const children = new Set();
 
     output.onClose = () => {
@@ -226,31 +211,32 @@ export function mergeAll() {
       });
     };
 
-    return ({ done, value }) => {
-      if (done === true) {
-        if (children.size === 0) {
-          output.complete(value);
+    return (outerIter) => {
+      if (outerIter.done) {
+        if (outerIter.value || !children.size) {
+          // it is an error or there are no children running, in either case we
+          // are done.
+          output.iter(outerIter);
         } else {
-          wrappedReturn = [value];
+          // tells the children to call complete when they all finish
+          outerCompleted = true;
         }
-      } else if (done) {
-        output.error(value);
       } else {
-        runTx(value, (child) => {
+        runTx(outerIter.value, (child) => {
           children.add(child);
 
-          return ({ done, value }) => {
-            if (done === true) {
+          return (iter) => {
+            if (iter.done) {
               children.delete(child);
-              if (wrappedReturn && children.size === 0) {
-                output.complete(wrappedReturn[0]);
+              if (iter.value || (outerCompleted && !children.size)) {
+                // either this was an error, or there are no other children
+                // running. In either case, we need to send the message
+                outerCompleted = false;
+                output.iter(iter);
               }
-            } else if (done) {
-              children.delete(child);
-              wrappedReturn = null;
-              output.error(value);
             } else {
-              output.next(value);
+              // normal case
+              output.iter(iter);
             }
           };
         });

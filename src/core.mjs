@@ -4,31 +4,38 @@
  */
 
 /**
- * The type of the standard return of iterator.next() in JS
- * @template T The type of each of the non-return iterations
- * @template ReturnT The type of the return iteration
- * @typedef {{done:false,value:T}|{done:true,value:ReturnT}|{done:"error",value:*}} Iteration
+ * A wrapper used to indicate that an error occurred. Because it is an object,
+ * it is always truthy.
+ * @typedef {{error: *}} DidError
+ */
+let DidError;
+
+/**
+ * Internally, data within the observables is held within these Iteration
+ * objects, which are designed to look like javascripts' standard iterations.
+ * @template T
+ * @typedef {{done:false,value:T}|{done:true,value:void|DidError}} Iteration
  */
 let Iteration;
 
 /**
+ * Handlers are functions that get called with the value of the iteration and
+ * the index of the iteration.
  * @template T
- * @template ReturnT
- * @typedef {function(Iteration<T,ReturnT>,number):void} Handler
+ * @typedef {function(Iteration<T>,number):void} Handler
  */
 let Handler;
 
 /**
- * @typedef {{nextEvent: ?IterRound, iteration: Iteration<*,*>}} IterRound
+ * @typedef {{nextEvent: ?IterRound, iteration: Iteration<*>}} IterRound
  */
 let IterRound;
 
 /**
+ * An operator takes in an Observable and outputs an Observable
  * @template InT
- * @template InReturnT
  * @template OutT
- * @template OutReturnT
- * @typedef {function(TxGenerator<InT,InReturnT>):TxGenerator<OutT,OutReturnT>} TxOp
+ * @typedef {function(TxGenerator<InT>):TxGenerator<OutT>} TxOp
  */
 export let TxOp;
 
@@ -69,24 +76,22 @@ const TxState = {
 };
 
 /**
- * Represents where an invoked generator outputs to.
- * @template T The type of each non-return iteration
- * @template ReturnT The final return type
+ * This class represents a step in a running observable (a stream).
  * @template InT
- * @template InReturnT
+ * @template OutT The type of the values
  */
-class TxOutput {
+class TxStep {
   /** @private */
   constructor(child) {
     /**
      * The current handler for the output
-     * @type {?Handler<InT,InReturnT>}
+     * @type {?Handler<InT>}
      */
     this.controller = null;
 
     /**
      * Set this value if you would like to run code on close. Closing happens
-     * when the TxOutput sends a complete, sends an error, or is abandoned
+     * when the TxStep sends a complete, sends an error, or is abandoned
      * @type {?function():void}
      */
     this.onClose = null;
@@ -104,15 +109,15 @@ class TxOutput {
     this._state = TxState.Open;
 
     /**
-     * The parent for this TxOutput, used to close everything.
-     * @type {?TxOutput<*,*,InT,ReturnT>}
+     * The parent for this TxStep, used to close everything.
+     * @type {?TxStep<InT,*>}
      */
     this._parent = null;
 
     /**
      * When an event occurs, it will call the child's controller.
      * The child will change to null when it dies
-     * @type {?TxOutput<*,*,T,ReturnT>}
+     * @type {?TxStep<T,*>}
      */
     this._child = child;
 
@@ -129,10 +134,9 @@ class TxOutput {
 
   /**
    * Ends the output with the given return value
-   * @param {ReturnT} returnVal
    */
-  complete(returnVal) {
-    runEvent(this, { done: true, value: returnVal });
+  complete() {
+    runEvent(this, { done: true, value: undefined });
   }
 
   /**
@@ -140,13 +144,13 @@ class TxOutput {
    * @param {*} error
    */
   error(error) {
-    runEvent(this, { done: "error", value: error });
+    runEvent(this, { done: true, value: { error } });
   }
 
   /**
    * Sends the iterator as-is straight down to the child.
    * If `iter.done` is truthy, the output will end
-   * @param {Iteration<T, ReturnT>} iter
+   * @param {Iteration<T>} iter
    */
   iter(iter) {
     runEvent(this, iter);
@@ -155,10 +159,10 @@ class TxOutput {
   /**
    * This function will cease all future outputs, as well as that of its parent
    * (and so on), calling the various onClose methods that are defined (in
-   * first-most parent to this output order).
+   * "first-most parent to this step" order).
    *
    * It is ok to call this function multiple times, it is idempotent and will do
-   * nothing if the TxOutput was already abandoned.
+   * nothing if the TxStep was already abandoned.
    */
   abandon() {
     if (this._state === TxState.Closed) {
@@ -193,15 +197,21 @@ class TxOutput {
 }
 
 /**
+ * This {@link TxStep} fired an event, so we need to invoke its child. However,
+ * its child may run code that fires an event _while this function is running_.
+ * In that situation, the inner call will only queue an event, which will be run
+ * once control returns to this outer event.
+ *
+ * Additionally, if an event is fired with {@link Iteration.done} set to
+ * `true`, then the {@link TxStep.abandon} method will be invoked immediately
+ * before calling the child.
  *
  * @template T
- * @template ReturnT
- * @param {TxOutput<T,ReturnT>} output
- * @param {Iteration<T,ReturnT>} iteration
- * @returns
+ * @param {TxStep<*,T>} step The object that is sending the value down to its child
+ * @param {Iteration<T>} iteration The value to send
  */
-function runEvent(output, iteration) {
-  if (output._state !== TxState.Open) {
+function runEvent(step, iteration) {
+  if (step._state !== TxState.Open) {
     // todo silently do nothing
     console.error(`Tried sending output after finished`);
     // throw new Error("STA");
@@ -209,20 +219,20 @@ function runEvent(output, iteration) {
   }
 
   if (iteration.done) {
-    output._state = TxState.Closing;
+    step._state = TxState.Closing;
   }
 
-  const child = output._child;
+  const child = step._child;
   if (!child) return;
 
   const queueNode = {
     nextEvent: null,
     iteration,
-    index: output._nextIndex++,
+    index: step._nextIndex++,
   };
 
-  const pending = output._queueEnd;
-  output._queueEnd = queueNode;
+  const pending = step._queueEnd;
+  step._queueEnd = queueNode;
 
   // if there is already code calling, then just add our iteration to the queue
   if (pending) {
@@ -238,7 +248,7 @@ function runEvent(output, iteration) {
     const { iteration, index, nextEvent } = active;
 
     if (iteration.done) {
-      output.abandon();
+      step.abandon();
     }
 
     // set it to null, if we are successful then it gets set to nextEvent
@@ -251,7 +261,7 @@ function runEvent(output, iteration) {
         active = nextEvent;
       } catch (error) {
         // is idempotent
-        output.abandon();
+        step.abandon();
 
         if (child._state === TxState.Open) {
           child.error(error);
@@ -263,7 +273,7 @@ function runEvent(output, iteration) {
     }
   }
 
-  output._queueEnd = null;
+  step._queueEnd = null;
 }
 
 /**
@@ -281,7 +291,7 @@ class SyncStream {
      */
     this._children = null;
 
-    this._output = new TxOutput((iteration, index) => {
+    this._output = new TxStep((iteration, index) => {
       const firstChild = this._children;
 
       // skip to the first actual handler
@@ -380,7 +390,7 @@ class SyncStream {
 export class TxSubscription {
   /**
    * Creates an TxSubscription that exposes the abandon command
-   * @param {TxOutput<*,*,*,*>} chain
+   * @param {TxStep<*,*>} chain
    * @private
    */
   constructor(chain) {
@@ -402,9 +412,8 @@ export class TxSubscription {
 }
 
 /**
- * An Async Generator
+ * The main Observable class. It does nothing until subscribed to.
  * @template T
- * @template ReturnT
  */
 export class TxGenerator {
   /**
@@ -418,15 +427,15 @@ export class TxGenerator {
   }
 
   /**
-   * Starts the generator
+   * Starts the observable
    * @param {?function(T,number):void=} onNext Called when the generator outputs a value
-   * @param {?function(ReturnT,number):void=} onComplete Called when the generator completes
+   * @param {?function():void=} onComplete Called when the generator completes
    * @param {?function(*):void} onError Called when the generator errors
    * @returns {TxSubscription}
    */
   run(onNext, onComplete, onError) {
-    const base = new TxOutput(null);
-    let top = new TxOutput(base);
+    const base = new TxStep(null);
+    let top = new TxStep(base);
     let gen = this;
     let parent = gen._parent;
     while (parent) {
@@ -434,7 +443,7 @@ export class TxGenerator {
       const code = gen._open;
       top.controller = code(top);
 
-      top = new TxOutput(top);
+      top = new TxStep(top);
 
       gen = parent;
       parent = parent._parent;
@@ -443,11 +452,13 @@ export class TxGenerator {
     // set up the subscription
     const sub = new TxSubscription(top);
     base.controller = ({ done, value }, index) => {
-      if (done === true) {
-        sub.completed = true;
-        onComplete?.(value, index);
-      } else if (done) {
-        (onError || uncaughtErrorWhileRunning)(value);
+      if (done) {
+        if (value) {
+          (onError || uncaughtErrorWhileRunning)(value.error);
+        } else {
+          sub.completed = true;
+          onComplete?.();
+        }
       } else {
         onNext?.(value, index);
       }
@@ -470,7 +481,7 @@ export class TxGenerator {
  *
  * @template T
  * @template ReturnT
- * @param {function(TxOutput<T,ReturnT>):void} code
+ * @param {function(TxStep<T,ReturnT>):void} code
  * @returns {TxGenerator<T,ReturnT>}
  */
 export function makeTx(code) {
@@ -486,7 +497,7 @@ export function makeTx(code) {
  * @template T
  * @template ReturnT
  * @param {TxGenerator<InT,InReturnT>} gen
- * @param {function(TxOutput<T,ReturnT>):Handler<InT,InReturnT>} code
+ * @param {function(TxStep<T,ReturnT>):Handler<InT,InReturnT>} code
  * @returns {TxSubscription}
  */
 export function runTx(gen, code) {
@@ -499,7 +510,7 @@ export function runTx(gen, code) {
  * @template InReturnT
  * @template T
  * @template ReturnT
- * @param {function(TxOutput<T,ReturnT>):Handler<InT,InReturnT>} code
+ * @param {function(TxStep<T,ReturnT>):Handler<InT,InReturnT>} code
  * @returns {TxOp<InT,InReturnT,T,ReturnT>}
  */
 export function makeTxOp(code) {

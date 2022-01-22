@@ -1,14 +1,13 @@
 import { makeTxOp, makeTx, pipe } from "./core.mjs";
 import {
   concat,
-  constants,
+  from,
   defer,
   filter,
   map,
   mergeAll,
   of,
   resolvePromises,
-  returns,
   timer,
 } from "./operators.mjs";
 import { test } from "./test_utils.mjs";
@@ -38,9 +37,9 @@ test("defer", (got, expect) => {
 });
 
 test("resolvePromises", async (got, expect) => {
-  constants([1, delay(TICK).then(() => 2), Promise.resolve(3), 4], 5)
+  from([1, delay(TICK).then(() => 2), Promise.resolve(3), 4])
     .pipe(resolvePromises())
-    .run(got, got);
+    .run(got, () => got(5));
   got(0);
 
   await delay(TWO_TICKS);
@@ -65,14 +64,14 @@ test("concat", async (got, expect) => {
   got(2);
   expect(3);
 
-  concat(constants([0, 1, 2], -1), constants([3, 4], 5)).run(got, got);
+  concat(from([0, 1, 2]), from([3, 4])).run(got, () => got(5));
   expect(6);
 
   concat(
-    constants([0, 1]),
-    constants([2, 3]),
-    constants([5, 6], 7).pipe(resolvePromises()) // asynchronously completes
-  ).run(got, got);
+    from([0, 1]),
+    from([2, 3]),
+    from([5, 6]).pipe(resolvePromises()) // asynchronously completes
+  ).run(got, () => got(7));
   got(4);
   await delay(0);
   expect(8);
@@ -80,23 +79,23 @@ test("concat", async (got, expect) => {
 
 test("map", async (got, expect) => {
   pipe(
-    constants([0, 2], 4),
+    from([0, 2]),
     map((num, index) => {
       got(num === 2 * index);
       return 1 + num;
     })
-  ).run(got, got);
+  ).run(got, () => got(4));
 
   expect(5);
 });
 
 test("filter", async (got, expect) => {
   pipe(
-    constants([-1, 0, 10, -2, 0, 1], 2),
+    from([-1, 0, 10, -2, 0, 1]),
     filter((num, index) => {
       return index & 1 && num >= 0;
     })
-  ).run(got, got);
+  ).run(got, () => got(2));
 
   expect(3);
 });
