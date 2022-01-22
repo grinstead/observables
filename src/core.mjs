@@ -27,7 +27,8 @@ let Iteration;
 let Handler;
 
 /**
- * @typedef {{nextEvent: ?IterRound, iteration: Iteration<*>}} IterRound
+ * @template T
+ * @typedef {{nextEvent: ?IterRound, iteration: Iteration<T>}} IterRound
  */
 let IterRound;
 
@@ -40,16 +41,12 @@ let IterRound;
 export let TxOp;
 
 /**
- * Subscribers are held in a linked-list of their handlers. If the handler is
- * set to null, that means that the user tried unsubscribing and we just need to
- * clear it from the list
- */
-/**
- * @typedef {{
- *  handler: ?Handler<*,*>,
- *  addedAfter: ?IterRound,
- *  nextChild: ?Child,
- * }} Child
+ * Subscribers to a stream are held in a linked-list of their handlers. If the
+ * handler is set to null, that means that the user tried unsubscribing and we
+ * just need to clear it from the list
+ *
+ * @template T
+ * @typedef {{handler:?Handler<T>, addedAfter:?IterRound<T>, nextChild:?Child<T>}} Child
  */
 let Child;
 
@@ -117,7 +114,7 @@ class TxStep {
     /**
      * When an event occurs, it will call the child's controller.
      * The child will change to null when it dies
-     * @type {?TxStep<T,*>}
+     * @type {?TxStep<OutT,*>}
      */
     this._child = child;
 
@@ -168,8 +165,6 @@ class TxStep {
     if (this._state === TxState.Closed) {
       return;
     }
-    this._state = TxState.Closed;
-    this._queueEnd = null;
 
     const closers = [];
 
@@ -179,6 +174,7 @@ class TxStep {
       const onClose = tx.onClose;
       onClose && closers.push(onClose);
 
+      tx._queueEnd = null;
       tx._state = TxState.Closed;
       tx._child = null;
       tx._parent = null;
@@ -277,12 +273,10 @@ function runEvent(step, iteration) {
 }
 
 /**
- * A stream represents ongoing data. The stream can be passed data as it comes
- * in through the {@link Stream.next} method.
+ * Synchronously emits to its children.
  * @template T The type of each non-return iteration
- * @template ReturnT The final return type
  */
-class SyncStream {
+class SyncSubject {
   constructor() {
     /**
      * The active listeners
@@ -291,48 +285,12 @@ class SyncStream {
      */
     this._children = null;
 
-    this._output = new TxStep((iteration, index) => {
-      const firstChild = this._children;
+    const handler = new TxStep(null);
+    handler.controller = (iteration, index) => {
+      notifySubscribers(this, iteration, index);
+    };
 
-      // skip to the first actual handler
-      let child = firstChild;
-      while (child && !child.handler) {
-        child = child.nextChild;
-      }
-
-      // actually remove the skipped handlers (null case implicitly handled)
-      if (child !== firstChild) {
-        stream._children = child;
-      }
-
-      let prevChild = null;
-      while (child) {
-        const { handler, addedAfter, nextChild } = child;
-        if (!handler) {
-          // Remove this child. Note that prevChild will not
-          // be null because we know that the first child we run
-          // on will have a handler
-          prevChild.nextChild = nextChild;
-          // do not update the prevChild
-        } else if (addedAfter) {
-          // the value is non-null only if the child was put in to the list while
-          // we processing previous events, so we do not call the handler
-
-          // if we have caught up to when the child was added, then get rid of the
-          // guard value
-          if (addedAfter === iteration) {
-            child.addedAfter = null;
-            prevChild = child;
-          }
-        } else {
-          // todo: handle errors
-          handler(iteration, index);
-          prevChild = child;
-        }
-
-        child = nextChild;
-      }
-    }, null);
+    this._output = new TxStep(handler);
   }
 
   /**
@@ -344,15 +302,67 @@ class SyncStream {
   }
 
   /**
-   * Ends the stream with the given return value
-   * @param {ReturnT} returnVal
+   * Ends the Subject
    */
-  complete(returnVal) {
-    this._output.return(returnVal);
+  complete() {
+    this._output.complete();
   }
 
   error(error) {
     this._output.error(error);
+  }
+
+  subscribe(handler) {
+    new TxObservable();
+  }
+}
+
+/**
+ * @template T
+ * @param {SyncSubject<T>} subject
+ * @param {T} iteration
+ * @param {number} index
+ */
+function notifySubscribers(subject, iteration, index) {
+  const firstChild = subject._children;
+
+  // skip to the first actual handler
+  let child = firstChild;
+  while (child && !child.handler) {
+    child = child.nextChild;
+  }
+
+  // actually remove the skipped handlers (null case implicitly handled)
+  if (child !== firstChild) {
+    subject._children = child;
+  }
+
+  let prevChild = null;
+  while (child) {
+    const { handler, addedAfter, nextChild } = child;
+    if (!handler) {
+      // Remove this child. Note that prevChild will not
+      // be null because we know that the first child we run
+      // on will have a handler
+      prevChild.nextChild = nextChild;
+      // do not update the prevChild
+    } else if (addedAfter) {
+      // the value is non-null only if the child was put in to the list while
+      // we processing previous events, so we do not call the handler
+
+      // if we have caught up to when the child was added, then get rid of the
+      // guard value
+      if (addedAfter === iteration) {
+        child.addedAfter = null;
+        prevChild = child;
+      }
+    } else {
+      // todo: handle errors
+      handler(iteration, index);
+      prevChild = child;
+    }
+
+    child = nextChild;
   }
 }
 
@@ -431,20 +441,13 @@ export class TxObservable {
    * @returns {TxSubscription}
    */
   subscribe(handler) {
-    let onNext, onComplete, onError;
-    if (handler && typeof handler === "object") {
-      onNext = handler.next;
-      onComplete = handler.complete;
-      onError = handler.error;
-    } else {
-      onNext = handler;
-    }
-
-    const base = new TxStep(null);
+    const base = endWithHandler(handler);
     let top = new TxStep(base);
     let gen = this;
     let parent = gen._parent;
     while (parent) {
+      // TODO: we may need to check that top is not closed
+
       // run the child
       const code = gen._open;
       top.controller = code(top);
@@ -456,18 +459,7 @@ export class TxObservable {
     }
 
     // set up the subscription
-    const sub = new TxSubscription(top);
-    base.controller = ({ done, value }, index) => {
-      if (done) {
-        if (value) {
-          (onError || uncaughtErrorWhileRunning)(value.error);
-        } else {
-          onComplete?.();
-        }
-      } else {
-        onNext?.(value, index);
-      }
-    };
+    const sub = new TxSubscription(base);
 
     // actually start the output stream
     const code = gen._open;
@@ -500,7 +492,7 @@ export function makeTx(code) {
  * @template InT
  * @template T
  * @param {TxObservable<InT>} gen
- * @param {function(TxStep<T,*>):Handler<InT,InReturnT>} code
+ * @param {function(TxStep<T,*>):Handler<InT>} code
  * @returns {TxSubscription}
  */
 export function runTx(gen, code) {
@@ -510,11 +502,9 @@ export function runTx(gen, code) {
 /**
  *
  * @template InT
- * @template InReturnT
  * @template T
- * @template ReturnT
- * @param {function(TxStep<T,ReturnT>):Handler<InT,InReturnT>} code
- * @returns {TxOp<InT,InReturnT,T,ReturnT>}
+ * @param {function(TxStep<T,ReturnT>):Handler<InT>} code
+ * @returns {TxOp<InT,T>}
  */
 export function makeTxOp(code) {
   return (input) => new TxObservable(input, code);
@@ -534,3 +524,33 @@ export const EMPTY = makeTx((output) => {
 });
 
 function noop() {}
+
+/**
+ *
+ * @param {{next?:function(T):void, complete?:function():void, error?:function(*):void}|function(T):void=} handler
+ */
+function endWithHandler(handler) {
+  let onNext, onComplete, onError;
+  if (handler && typeof handler === "object") {
+    onNext = handler.next;
+    onComplete = handler.complete;
+    onError = handler.error;
+  } else {
+    onNext = handler;
+  }
+
+  const endStep = new TxStep(null);
+  endStep.controller = ({ done, value }) => {
+    if (done) {
+      if (value) {
+        (onError || uncaughtErrorWhileRunning)(value.error);
+      } else {
+        onComplete?.();
+      }
+    } else {
+      onNext?.(value);
+    }
+  };
+
+  return endStep;
+}
