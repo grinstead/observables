@@ -14,7 +14,7 @@ let DidError;
  * Internally, data within the observables is held within these Iteration
  * objects, which are designed to look like javascripts' standard iterations.
  * @template T
- * @typedef {{done:false,value:T}|{done:true,value:void|DidError}} Iteration
+ * @typedef {{done:false,value:T}|{done:true,value:(void|DidError)}} Iteration
  */
 let Iteration;
 
@@ -82,7 +82,7 @@ class TxStep {
 
     /**
      * Whether or not the element is closed.
-     * @type {boolean}
+     * @type {TxState}
      */
     this._state = TxState.Open;
 
@@ -104,7 +104,7 @@ class TxStep {
 
   /**
    * Synchronously sends down the value
-   * @param {T} val
+   * @param {T} value
    */
   next(value) {
     runEvent(this, { done: false, value });

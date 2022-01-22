@@ -2,7 +2,7 @@
   "name": "@grinstead/tx",
   "version": "0.1.0",
   "description": "A library for asynchronous generators",
-  "main": "src/index.mjs",
+  "main": "dist/tx.min.js",
   "scripts": {
     "test": "deno test"
   },
@@ -15,5 +15,8 @@
     "asynchronous"
   ],
   "author": "@grinstead",
-  "license": "BSD-2-Clause"
+  "license": "BSD-2-Clause",
+  "repository": "git@github.com:grinstead/tx.git",
+  "private": false,
+  "devDependencies": {}
 }
