@@ -1,4 +1,4 @@
-import { makeTxOp, makeTx, pipe } from "./core.mjs";
+import { makeTxOp, makeTx, pipe, SyncSubject } from "./core.mjs";
 import {
   concat,
   from,
@@ -98,6 +98,45 @@ test("filter", async (got, expect) => {
   ).subscribe(got.endsWith(2));
 
   expect(3);
+});
+
+test("SyncSubject", async (got, expect) => {
+  // basic test
+  let subject = new SyncSubject();
+  subject.subscribe(got.endsWith(1));
+  subject.next(0);
+  subject.complete();
+
+  expect(2);
+
+  // test unsubscribing in the middle
+  subject = new SyncSubject();
+  subject.subscribe((arg) => got(arg));
+  let unsub = subject.subscribe((arg) => {
+    got(arg + 1);
+    arg === 3 && unsub.unsubscribe();
+  });
+  subject.subscribe((arg) => got(arg === 6 ? 7 : arg + 2));
+  subject.next(0);
+  subject.next(3);
+  subject.next(6);
+  expect(8);
+
+  // test subscribing in the middle
+  subject = new SyncSubject();
+  subject.subscribe((arg) => {
+    if (arg < 0) {
+      subject.subscribe((arg) => got(arg + 1));
+    } else {
+      got(arg);
+    }
+  });
+  subject.next(0);
+  subject.next(1);
+  subject.next(-1);
+  subject.next(2);
+  subject.next(4);
+  expect(6);
 });
 
 test("timer", async (got, expect) => {

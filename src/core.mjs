@@ -27,12 +27,6 @@ let Iteration;
 let Handler;
 
 /**
- * @template T
- * @typedef {{nextEvent: ?IterRound, iteration: Iteration<T>}} IterRound
- */
-let IterRound;
-
-/**
  * An operator takes in an Observable and outputs an Observable
  * @template InT
  * @template OutT
@@ -46,22 +40,9 @@ export let TxOp;
  * just need to clear it from the list
  *
  * @template T
- * @typedef {{handler:?Handler<T>, addedAfter:?IterRound<T>, nextChild:?Child<T>}} Child
+ * @typedef {{output:?TxStep<T,*>, startsOn:number, nextChild:?Child<T>}} Child
  */
 let Child;
-
-/**
- * Internal method to make child object.
- * @param {Handler<*,*>} handler
- * @returns {Child}
- */
-function makeChild(handler, addedAfter) {
-  return {
-    handler,
-    addedAfter,
-    nextChild: null,
-  };
-}
 
 /**
  * @enum {number}
@@ -276,11 +257,11 @@ function runEvent(step, iteration) {
  * Synchronously emits to its children.
  * @template T The type of each non-return iteration
  */
-class SyncSubject {
+export class SyncSubject {
   constructor() {
     /**
      * The active listeners
-     * @type {?Child}
+     * @type {?Child<T>}
      * @private
      */
     this._children = null;
@@ -313,7 +294,44 @@ class SyncSubject {
   }
 
   subscribe(handler) {
-    new TxObservable();
+    const end = endWithHandler(handler);
+    this.subscribeStep(end);
+    return new TxSubscription(end);
+  }
+
+  subscribeStep(base) {
+    const step = new TxStep(base);
+
+    const child = {
+      output: step,
+      startsOn: this._output._nextIndex,
+      nextChild: this._children, // clever trick
+    };
+
+    step.onClose = () => {
+      child.output = null;
+    };
+
+    // loop until the end of the list
+    let nextChild;
+    let lastActiveChild = child;
+    while ((nextChild = lastActiveChild.nextChild)) {
+      if (nextChild.output) {
+        lastActiveChild = nextChild;
+      } else {
+        // may as well reap the child
+        lastActiveChild.nextChild = nextChild.nextChild;
+      }
+    }
+
+    if (child === lastActiveChild) {
+      this._children = child;
+    } else {
+      lastActiveChild.nextChild = child;
+      child.nextChild = null;
+    }
+
+    return step;
   }
 }
 
@@ -323,79 +341,41 @@ class SyncSubject {
  * @param {T} iteration
  * @param {number} index
  */
-function notifySubscribers(subject, iteration, index) {
+function notifySubscribers(subject, { done, value }, index) {
   const firstChild = subject._children;
 
   // skip to the first actual handler
-  let child = firstChild;
-  while (child && !child.handler) {
-    child = child.nextChild;
+  let activeChild = firstChild;
+  while (activeChild && !activeChild.output) {
+    activeChild = activeChild.nextChild;
   }
 
   // actually remove the skipped handlers (null case implicitly handled)
-  if (child !== firstChild) {
-    subject._children = child;
+  if (activeChild !== firstChild) {
+    subject._children = activeChild;
   }
 
-  let prevChild = null;
-  while (child) {
-    const { handler, addedAfter, nextChild } = child;
-    if (!handler) {
-      // Remove this child. Note that prevChild will not
-      // be null because we know that the first child we run
-      // on will have a handler
-      prevChild.nextChild = nextChild;
-      // do not update the prevChild
-    } else if (addedAfter) {
-      // the value is non-null only if the child was put in to the list while
-      // we processing previous events, so we do not call the handler
+  if (!activeChild) return;
 
-      // if we have caught up to when the child was added, then get rid of the
-      // guard value
-      if (addedAfter === iteration) {
-        child.addedAfter = null;
-        prevChild = child;
-      }
+  let child = activeChild;
+  while (child) {
+    const { output, startsOn, nextChild } = child;
+    if (!output) {
+      // Remove this child. Note that this case will never be hit on the first
+      // run of the loop.
+      activeChild.nextChild = nextChild;
+      // do not update the activeChild variable
     } else {
-      // todo: handle errors
-      handler(iteration, index);
-      prevChild = child;
+      // note that we create a new iteration each time because we do not want
+      // multiple children to share the same reference, there is an assumption
+      // of ownership.
+      index >= startsOn && output.iter({ done, value }, index);
+      activeChild = child;
     }
 
     child = nextChild;
   }
 }
-
-// /**
-//  *
-//  * @template T
-//  * @template ReturnT
-//  * @param {SyncStream<T,ReturnT>} stream
-//  * @param {Handler<T,ReturnT>} handler
-//  */
-// function subscribe(stream, handler) {
-//   const child = makeChild(handler, stream._output._queueEnd?.iteration);
-
-//   let children = stream._children;
-//   if (children && children.handler) {
-//     // a while loop is gross, but the assumption is that we rarely actually have
-//     // more than one subscriber
-//     while (children.nextChild) {
-//       const nextChild = children.nextChild;
-
-//       if (nextChild.handler) {
-//         children = children.nextChild;
-//       } else {
-//         children.nextChild = nextChild.nextChild;
-//       }
-//     }
-//     children.nextChild = child;
-//   } else {
-//     stream._children = child;
-//   }
-
-//   // todo, trigger something
-// }
 
 /**
  * Presents a function which allows you to unsubscribe from a stream
