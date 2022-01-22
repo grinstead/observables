@@ -1,10 +1,10 @@
-import { runTx, makeTx, makeTxOp, TxGenerator, TxOp, EMPTY } from "./core.mjs";
+import { runTx, makeTx, makeTxOp, TxObservable, TxOp, EMPTY } from "./core.mjs";
 
 /**
  * Creates a generator that outputs the given args
  * @template T
  * @param  {...T} args
- * @returns {TxGenerator<T>}
+ * @returns {TxObservable<T>}
  */
 export function of(...args) {
   return from(args);
@@ -14,7 +14,7 @@ export function of(...args) {
  * Creates a generator that outputs the given elements and ends with the result
  * @template T
  * @param {Array<T>} constants
- * @returns {TxGenerator<T>}
+ * @returns {TxObservable<T>}
  */
 export function from(constants) {
   return makeTx((output) => {
@@ -31,8 +31,8 @@ export function from(constants) {
  * The final return value will become the return value of the result.
  * If no arguments are supplied, it returns EMPTY
  * @template T
- * @param {...TxGenerator<T>} els
- * @returns {TxGenerator<T>}
+ * @param {...TxObservable<T>} els
+ * @returns {TxObservable<T>}
  */
 export function concat(...els) {
   if (els.length === 0) {
@@ -85,8 +85,8 @@ export function concat(...els) {
 /**
  * Runs code when the generator opens
  * @template T
- * @param {function():TxGenerator<T>} code
- * @returns {TxGenerator<T>}
+ * @param {function():TxObservable<T>} code
+ * @returns {TxObservable<T>}
  */
 export function defer(code) {
   return makeTx((output) => {
@@ -107,7 +107,7 @@ export function defer(code) {
  * @template T
  * @param {number} timeMs
  * @param {T} arg
- * @returns {TxGenerator<T>}
+ * @returns {TxObservable<T>}
  */
 export function timer(timeMs, arg) {
   return makeTx((output) => {
@@ -198,7 +198,7 @@ export function filter(filterFunc) {
 /**
  * Takes a generator of generators and flattens them into one generator
  * @template T
- * @returns {TxOp<TxGenerator<T>, T>}
+ * @returns {TxOp<TxObservable<T>, T>}
  */
 export function mergeAll() {
   return makeTxOp((output) => {

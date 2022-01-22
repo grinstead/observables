@@ -29,6 +29,11 @@ export function test(name, code) {
     }
   };
 
+  got.endsWith = (endWith) => ({
+    next: got,
+    complete: () => got(endWith),
+  });
+
   const expect = (total) => {
     if (error) {
       throw error;

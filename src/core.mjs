@@ -35,7 +35,7 @@ let IterRound;
  * An operator takes in an Observable and outputs an Observable
  * @template InT
  * @template OutT
- * @typedef {function(TxGenerator<InT>):TxGenerator<OutT>} TxOp
+ * @typedef {function(TxObservable<InT>):TxObservable<OutT>} TxOp
  */
 export let TxOp;
 
@@ -387,27 +387,26 @@ class SyncStream {
 //   // todo, trigger something
 // }
 
+/**
+ * Presents a function which allows you to unsubscribe from a stream
+ */
 export class TxSubscription {
   /**
-   * Creates an TxSubscription that exposes the abandon command
+   * Creates an TxSubscription that exposes the unsubscribe command
    * @param {TxStep<*,*>} chain
    * @private
    */
   constructor(chain) {
     /**
-     * Abandon the subscription, no more events will fire within it
+     * Ends the subscription, no more events will fire within it
      * @type {function():void}
      * @readonly
      * @public
      */
-    this.abandon = () => chain.abandon();
-
-    /**
-     * Whether or not the subscription completed without error
-     * @type {boolean}
-     * @public
-     */
-    this.completed = false;
+    this.unsubscribe = () => {
+      this.unsubscribe = noop;
+      chain.abandon();
+    };
   }
 }
 
@@ -415,7 +414,7 @@ export class TxSubscription {
  * The main Observable class. It does nothing until subscribed to.
  * @template T
  */
-export class TxGenerator {
+export class TxObservable {
   /**
    * Do not use this function directly, instead use {@link makeTx},
    * {@link runTx}, or {@link makeTxOp}.
@@ -428,12 +427,19 @@ export class TxGenerator {
 
   /**
    * Starts the observable
-   * @param {?function(T,number):void=} onNext Called when the generator outputs a value
-   * @param {?function():void=} onComplete Called when the generator completes
-   * @param {?function(*):void} onError Called when the generator errors
+   * @param {{next?:function(T):void, complete?:function():void, error?:function(*):void}|function(T):void} handler
    * @returns {TxSubscription}
    */
-  run(onNext, onComplete, onError) {
+  subscribe(handler) {
+    let onNext, onComplete, onError;
+    if (handler && typeof handler === "object") {
+      onNext = handler.next;
+      onComplete = handler.complete;
+      onError = handler.error;
+    } else {
+      onNext = handler;
+    }
+
     const base = new TxStep(null);
     let top = new TxStep(base);
     let gen = this;
@@ -456,7 +462,6 @@ export class TxGenerator {
         if (value) {
           (onError || uncaughtErrorWhileRunning)(value.error);
         } else {
-          sub.completed = true;
           onComplete?.();
         }
       } else {
@@ -482,10 +487,10 @@ export class TxGenerator {
  * @template T
  * @template ReturnT
  * @param {function(TxStep<T,ReturnT>):void} code
- * @returns {TxGenerator<T,ReturnT>}
+ * @returns {TxObservable<T,ReturnT>}
  */
 export function makeTx(code) {
-  return new TxGenerator(null, code);
+  return new TxObservable(null, code);
 }
 
 /**
@@ -493,15 +498,13 @@ export function makeTx(code) {
  * This is a bit more advanced, but it enables unsubscribing while receiving
  * values synchronously.
  * @template InT
- * @template InReturnT
  * @template T
- * @template ReturnT
- * @param {TxGenerator<InT,InReturnT>} gen
- * @param {function(TxStep<T,ReturnT>):Handler<InT,InReturnT>} code
+ * @param {TxObservable<InT>} gen
+ * @param {function(TxStep<T,*>):Handler<InT,InReturnT>} code
  * @returns {TxSubscription}
  */
 export function runTx(gen, code) {
-  return new TxGenerator(gen, code).run();
+  return new TxObservable(gen, code).subscribe();
 }
 
 /**
@@ -514,7 +517,7 @@ export function runTx(gen, code) {
  * @returns {TxOp<InT,InReturnT,T,ReturnT>}
  */
 export function makeTxOp(code) {
-  return (input) => new TxGenerator(input, code);
+  return (input) => new TxObservable(input, code);
 }
 
 function uncaughtErrorWhileRunning(error) {
@@ -529,3 +532,5 @@ export function pipe(gen, ...ops) {
 export const EMPTY = makeTx((output) => {
   output.complete();
 });
+
+function noop() {}
